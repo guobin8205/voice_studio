@@ -349,7 +349,8 @@ async def _download_model(name: str, size: str = ""):
             except Exception as e:
                 return ("error", f"pip install {pkg} 异常: {e}")
 
-        # IndexTTS2 特殊处理：源码从 Gitee/GitHub 拉 + pip install，权重在 ModelScope
+        # IndexTTS2 特殊处理：源码可以从 third_party/IndexTTS2 预置目录加载，
+        # 或自动 git clone（国内可能失败，建议手动下载到 third_party/IndexTTS2）
         if name == "indextts2":
             import os as _os
             import shutil as _shutil
@@ -358,39 +359,54 @@ async def _download_model(name: str, size: str = ""):
                 import importlib
                 importlib.import_module("indextts")
             except ImportError:
-                # 阶段 1a: git clone 源码
-                if not _os.path.exists(src_dir):
+                # 阶段 1a: 检查源码是否已存在（用户可能手动下载了）
+                has_source = (
+                    _os.path.exists(src_dir)
+                    and (_os.path.exists(_os.path.join(src_dir, "pyproject.toml"))
+                         or _os.path.exists(_os.path.join(src_dir, "setup.py")))
+                )
+
+                if not has_source:
+                    # 尝试 git clone（国内可能失败）
+                    download_status[key].update({
+                        "phase": "installing_package",
+                        "status": f"git clone IndexTTS2 源码（国内网络可能失败，可手动下载到 {src_dir}）...",
+                        "progress": 0,
+                    })
                     _os.makedirs("./third_party", exist_ok=True)
                     clone_ok = False
                     last_git_err = ""
                     for git_url in INDEXTTS2_SOURCE_URLS:
-                        download_status[key].update({
-                            "phase": "installing_package",
-                            "status": f"git clone IndexTTS2 源码（{git_url.split('/')[2]}）...",
-                            "progress": 0,
-                        })
                         rc, last = _run_with_progress(
                             ["git", "clone", "--depth", "1", git_url, src_dir],
                             label=f"git clone ({git_url.split('/')[2]})",
                         )
-                        if rc == 0:
+                        if rc == 0 and (_os.path.exists(_os.path.join(src_dir, "pyproject.toml"))
+                                        or _os.path.exists(_os.path.join(src_dir, "setup.py"))):
                             clone_ok = True
                             break
                         last_git_err = last[-200:]
-                        # 清理失败目录
                         if _os.path.exists(src_dir):
                             _shutil.rmtree(src_dir, ignore_errors=True)
                     if not clone_ok:
-                        return ("error", f"git clone IndexTTS2 源码失败（所有镜像都试过）: {last_git_err}")
+                        return ("error",
+                                f"git clone 失败（所有镜像都试过）: {last_git_err}\n"
+                                f"请手动从 https://github.com/index-tts/index-tts 下载源码，"
+                                f"解压到 {src_dir} 后重试。")
 
                 # 阶段 1b: pip install 源码
+                download_status[key].update({
+                    "phase": "installing_package",
+                    "status": f"pip install IndexTTS2 源码（from {src_dir}）...",
+                    "progress": 50,
+                })
                 rc, last = _run_with_progress(
                     [
                         sys.executable, "-m", "pip", "install", src_dir,
                         "-i", PIP_INDEX_URL,
                         "--trusted-host", PIP_TRUSTED_HOST,
                     ],
-                    label="pip install IndexTTS2 (from source)",
+                    label="pip install IndexTTS2",
                 )
                 if rc != 0:
                     return ("error", f"pip install IndexTTS2 失败（exit {rc}）: {last[-200:]}")
