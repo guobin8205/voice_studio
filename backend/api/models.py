@@ -204,24 +204,44 @@ async def _download_model(name: str):
         import subprocess
         import sys
 
-        # 阶段 1: pip 安装推理包（在线程中执行，不阻塞 event loop）
+        def _run_with_progress(cmd: list, label: str, phase_msg_template: str = "{label}: {line}"):
+            """运行命令，实时把 stdout/stderr 推送到 download_status"""
+            download_status[name].update({"phase": "installing_package", "progress": 0})
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                encoding="utf-8",
+                errors="replace",
+            )
+            lines_seen = 0
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                lines_seen += 1
+                # 把最新输出作为 phase_message，前端能看到
+                download_status[name].update({
+                    "status": phase_msg_template.format(label=label, line=line[-80:]),
+                    # pip 安装没有真实进度，给一个递增的虚假进度（最多 95%）
+                    "progress": min(lines_seen * 5, 95),
+                })
+            proc.wait()
+            return proc.returncode
+
+        # 阶段 1: pip 安装推理包
         pkg = MODEL_PACKAGES.get(name)
         if pkg:
             try:
-                download_status[name].update({
-                    "phase": "installing_package",
-                    "status": f"正在安装推理包 {pkg}...",
-                    "progress": 0,
-                })
-                # 用 subprocess 实时输出，但这里简单等待完成
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", pkg, "--quiet"],
-                    capture_output=True, text=True, timeout=600,
+                rc = _run_with_progress(
+                    [sys.executable, "-m", "pip", "install", pkg, "--progress-bar=on"],
+                    label=f"pip install {pkg}",
+                    phase_msg_template="{line}",
                 )
-                if result.returncode != 0:
-                    return ("error", f"pip install {pkg} 失败: {result.stderr[-200:]}")
-            except subprocess.TimeoutExpired:
-                return ("error", f"pip install {pkg} 超时（10 分钟）")
+                if rc != 0:
+                    return ("error", f"pip install {pkg} 失败（exit {rc}）")
             except Exception as e:
                 return ("error", f"pip install {pkg} 异常: {e}")
 
@@ -231,27 +251,33 @@ async def _download_model(name: str):
                 import importlib
                 importlib.import_module("indextts")
             except ImportError:
-                download_status[name].update({
-                    "phase": "installing_package",
-                    "status": "正在 git clone IndexTTS2...",
-                    "progress": 0,
-                })
                 target_src = "./third_party/IndexTTS2"
                 if not os.path.exists(target_src):
                     os.makedirs("./third_party", exist_ok=True)
-                    result = subprocess.run(
+                    download_status[name].update({
+                        "phase": "installing_package",
+                        "status": "git clone IndexTTS2...",
+                        "progress": 0,
+                    })
+                    rc = _run_with_progress(
                         ["git", "clone", "--depth", "1", "https://github.com/index-tts/index-tts.git", target_src],
-                        capture_output=True, text=True, timeout=300,
+                        label="git clone IndexTTS2",
                     )
-                    if result.returncode != 0:
-                        return ("error", f"git clone IndexTTS2 失败: {result.stderr[-200:]}")
-                    # pip install -e
-                    subprocess.run(
-                        [sys.executable, "-m", "pip", "install", "-e", target_src, "--quiet"],
-                        capture_output=True, text=True, timeout=600,
-                    )
+                    if rc != 0:
+                        return ("error", f"git clone IndexTTS2 失败（exit {rc}）")
+                rc = _run_with_progress(
+                    [sys.executable, "-m", "pip", "install", "-e", target_src],
+                    label="pip install IndexTTS2",
+                )
+                if rc != 0:
+                    return ("error", f"pip install IndexTTS2 失败（exit {rc}）")
+
         # 重置进度准备下载权重
-        download_status[name].update({"phase": "downloading_weights", "progress": 0, "status": "正在下载权重..."})
+        download_status[name].update({
+            "phase": "downloading_weights",
+            "progress": 0,
+            "status": "正在下载权重文件...",
+        })
 
         # 阶段 2: ModelScope 下载权重
         try:
