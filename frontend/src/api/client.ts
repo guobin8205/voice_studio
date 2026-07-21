@@ -23,6 +23,14 @@ export const api = {
   unloadModel: (name: string) =>
     request<{ name: string; loaded: boolean }>(`/models/${name}/unload`, { method: 'POST' }),
 
+  // Model download
+  getDownloadStatus: (name: string) =>
+    request<{ name: string; downloading: boolean; progress: number; status: string; error: string | null }>(`/models/${name}/download-status`),
+  startDownload: (name: string) =>
+    request<{ name: string; message: string }>(`/models/${name}/download`, { method: 'POST' }),
+  downloadProgressWS: (name: string) =>
+    new WebSocket(`ws://${window.location.host}/api/models/${name}/download-progress`),
+
   // System
   getSystemStatus: () => request<SystemStatus>('/system/status'),
 
