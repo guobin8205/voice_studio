@@ -24,12 +24,12 @@ export const api = {
     request<{ name: string; loaded: boolean }>(`/models/${name}/unload`, { method: 'POST' }),
 
   // Model download
-  getDownloadStatus: (name: string) =>
-    request<{ name: string; downloading: boolean; progress: number; status: string; error: string | null }>(`/models/${name}/download-status`),
-  startDownload: (name: string) =>
-    request<{ name: string; message: string }>(`/models/${name}/download`, { method: 'POST' }),
-  downloadProgressWS: (name: string) =>
-    new WebSocket(`ws://${window.location.host}/api/models/${name}/download-progress`),
+  getDownloadStatus: (name: string, size?: string) =>
+    request<any>(`/models/${name}/download-status${size ? `?size=${encodeURIComponent(size)}` : ''}`),
+  startDownload: (name: string, size?: string) =>
+    request<{ name: string; sizes_started: string[]; message: string }>(`/models/${name}/download${size ? `?size=${encodeURIComponent(size)}` : ''}`, { method: 'POST' }),
+  downloadProgressWS: (name: string, size?: string) =>
+    new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/models/${name}/download-progress${size ? `?size=${encodeURIComponent(size)}` : ''}`),
 
   // System
   getSystemStatus: () => request<SystemStatus>('/system/status'),

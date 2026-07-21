@@ -102,7 +102,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       for (let i = 0; i < state.selectedModels.length; i++) {
         const m = state.selectedModels[i];
-        set({ generateProgress: `正在生成 ${m.name} (${i + 1}/${state.selectedModels.length})...` });
+        set({ generateProgress: `正在生成 ${m.name} ${m.size} (${i + 1}/${state.selectedModels.length})...` });
         const ov = state.modelOverrides[m.name] || defaultOverride();
         const resp = await api.generate({
           model: m.name, size: m.size,
@@ -116,7 +116,13 @@ export const useStore = create<AppState>((set, get) => ({
       }
       set({ results, generateProgress: '生成完成' });
     } catch (e: any) {
-      set({ generateError: e.message || String(e), generateProgress: `❌ 生成失败: ${e.message || e}` });
+      // 提取后端的错误信息
+      let msg = e.message || String(e);
+      try {
+        const j = JSON.parse(msg);
+        msg = j.detail || msg;
+      } catch {}
+      set({ generateError: msg, generateProgress: `❌ 生成失败: ${msg}` });
     } finally {
       set({ generating: false });
     }
@@ -146,7 +152,9 @@ export const useStore = create<AppState>((set, get) => ({
       }
       set({ results, generateProgress: '克隆完成' });
     } catch (e: any) {
-      set({ generateError: e.message || String(e), generateProgress: `❌ 克隆失败: ${e.message || e}` });
+      let msg = e.message || String(e);
+      try { const j = JSON.parse(msg); msg = j.detail || msg; } catch {}
+      set({ generateError: msg, generateProgress: `❌ 克隆失败: ${msg}` });
     } finally {
       set({ generating: false });
     }
