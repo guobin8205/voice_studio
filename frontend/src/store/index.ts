@@ -66,16 +66,24 @@ export const useStore = create<AppState>((set, get) => ({
   generateProgress: '',
 
   fetchModels: async () => {
-    const models = await api.getModels();
-    set({ models });
-    if (get().selectedModels.length === 0 && models.length > 0) {
-      set({ selectedModels: [{ name: models[0].name, size: models[0].sizes[0] }] });
+    try {
+      const models = await api.getModels();
+      set({ models });
+      if (get().selectedModels.length === 0 && models.length > 0) {
+        set({ selectedModels: [{ name: models[0].name, size: models[0].sizes[0] }] });
+      }
+    } catch (e) {
+      console.warn('Failed to fetch models:', e);
     }
   },
 
   fetchSystemStatus: async () => {
-    const status = await api.getSystemStatus();
-    set({ systemStatus: status });
+    try {
+      const status = await api.getSystemStatus();
+      set({ systemStatus: status });
+    } catch (e) {
+      console.warn('Failed to fetch system status:', e);
+    }
   },
 
   generate: async () => {
