@@ -274,9 +274,10 @@ def stop():
         for pid in pids:
             try:
                 if sys.platform == "win32":
-                    run(f"taskkill /PID {pid} /F", capture=True)
+                    # /T 杀整个进程树（Uvicorn reload 有父子进程）
+                    run(f"taskkill /PID {pid} /T /F", capture=True)
                 else:
-                    run(f"kill {pid}", capture=True)
+                    run(f"kill -9 {pid}", capture=True)
                 print(f"  已终止 PID: {pid}")
             except Exception:
                 pass
@@ -324,15 +325,21 @@ def clean():
 
 
 def _kill_port(port):
-    """Kill process occupying a port."""
+    """Kill process occupying a port (including process tree on Windows)."""
     try:
         if sys.platform == "win32":
             result = run(f'netstat -ano | findstr :{port}', capture=True)
             out = result.stdout.read().decode() if result.stdout else ""
+            killed = set()
             for line in out.split("\n"):
                 if f":{port}" in line and "LISTENING" in line:
                     pid = line.strip().split()[-1]
-                    run(f"taskkill /PID {pid} /F", capture=True)
+                    if pid in killed:
+                        continue
+                    # /T 杀整个进程树（Uvicorn reload 有父子进程）
+                    run(f"taskkill /PID {pid} /T /F", capture=True)
+                    killed.add(pid)
+                    print(f"  {dim(f'已终止 PID: {pid} (port {port})')}")
         else:
             run(f"lsof -ti:{port} | xargs kill -9 2>/dev/null", capture=True)
     except Exception:
