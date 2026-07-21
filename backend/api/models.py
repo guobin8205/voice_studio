@@ -14,32 +14,15 @@ _download_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
 # Model download tracking
 download_status: dict[str, dict] = {}
 
-# 由于 transformers 版本冲突（qwen-tts 要 4.57，indextts 要 4.52，互斥），
-# IndexTTS2 暂不可用。可以从单独的 Python 3.10 环境跑。
-DISABLED_MODELS = {"indextts2"}
-
 # 每个模型对应的推理包（pip 安装）
 MODEL_PACKAGES = {
     "qwen3tts": "qwen-tts",
     "voxcpm2": "voxcpm",
-    # IndexTTS2 没有 PyPI 包，源码在 GitHub/Gitee，权重在 ModelScope
 }
 
-# IndexTTS2 源码仓库（Gitee 镜像优先，国内速度快）
-INDEXTTS2_SOURCE_URLS = [
-    "https://gitee.com/mirrors/index-tts.git",
-    "https://gitcode.com/index-tts/index-tts.git",
-    "https://github.com/index-tts/index-tts.git",
-]
-INDEXTTS2_SRC_DIR = "./third_party/IndexTTS2"
-
-# IndexTTS2 权重 ModelScope 仓库（纯权重，不含源码）
-INDEXTTS2_MODELSCOPE_REPO = "IndexTeam/IndexTTS-2"
-
-# 每个模型的真实规格（替代之前错误的 1.7B/0.6B）
+# 每个模型的真实规格
 MODEL_REAL_SIZES = {
     "qwen3tts": ["1.7B", "0.6B"],
-    "indextts2": ["standard"],
     "voxcpm2": ["2B"],
 }
 
@@ -57,27 +40,21 @@ MODEL_REPOS = {
         "1.7B": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         "0.6B": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
     },
-    "indextts2": {
-        "standard": "IndexTeam/IndexTTS-2",  # ModelScope 上的官方仓库
-    },
     "voxcpm2": {
         "2B": "openbmb/VoxCPM2",
     },
 }
 
-# HuggingFace fallback IDs (只在与 ModelScope 不同时使用)
+# HuggingFace fallback IDs
 HF_REPOS = {
-    "indextts2": {"1.7B": "IndexTeam/IndexTTS2"},
     "voxcpm2": {"1.7B": "openbmb/VoxCPM2"},
 }
 
 # Register model adapters
 from backend.engine.qwen3tts import Qwen3TTSAdapter
-from backend.engine.indextts2 import IndexTTS2Adapter
 from backend.engine.voxcpm2 import VoxCPM2Adapter
 
 manager.register("qwen3tts", Qwen3TTSAdapter())
-manager.register("indextts2", IndexTTS2Adapter())
 manager.register("voxcpm2", VoxCPM2Adapter())
 
 
@@ -87,10 +64,7 @@ class LoadRequest(BaseModel):
 
 @router.get("")
 async def list_models():
-    return [
-        {**_as_dict(m), "disabled": m.name in DISABLED_MODELS}
-        for m in manager.get_available_models()
-    ]
+    return [_as_dict(m) for m in manager.get_available_models()]
 
 
 @router.get("/{name}/status")
@@ -268,7 +242,6 @@ async def _download_model(name: str, size: str = ""):
     # 各模型目标大小（bytes）
     estimated_sizes = {
         "qwen3tts": 4 * 1024**3,
-        "indextts2": 4 * 1024**3,
         "voxcpm2": 8 * 1024**3,
     }
     target_size = estimated_sizes.get(name, 4 * 1024**3)
@@ -355,68 +328,6 @@ async def _download_model(name: str, size: str = ""):
                     return ("error", f"pip install {pkg} 失败（exit {rc}）: {last[-200:]}")
             except Exception as e:
                 return ("error", f"pip install {pkg} 异常: {e}")
-
-        # IndexTTS2 特殊处理：源码可以从 third_party/IndexTTS2 预置目录加载，
-        # 或自动 git clone（国内可能失败，建议手动下载到 third_party/IndexTTS2）
-        if name == "indextts2":
-            import os as _os
-            import shutil as _shutil
-            src_dir = INDEXTTS2_SRC_DIR
-            try:
-                import importlib
-                importlib.import_module("indextts")
-            except ImportError:
-                # 阶段 1a: 检查源码是否已存在（用户可能手动下载了）
-                has_source = (
-                    _os.path.exists(src_dir)
-                    and (_os.path.exists(_os.path.join(src_dir, "pyproject.toml"))
-                         or _os.path.exists(_os.path.join(src_dir, "setup.py")))
-                )
-
-                if not has_source:
-                    # 尝试 git clone（国内可能失败）
-                    download_status[key].update({
-                        "phase": "installing_package",
-                        "status": f"git clone IndexTTS2 源码（国内网络可能失败，可手动下载到 {src_dir}）...",
-                        "progress": 0,
-                    })
-                    _os.makedirs("./third_party", exist_ok=True)
-                    clone_ok = False
-                    last_git_err = ""
-                    for git_url in INDEXTTS2_SOURCE_URLS:
-                        rc, last = _run_with_progress(
-                            ["git", "clone", "--depth", "1", git_url, src_dir],
-                            label=f"git clone ({git_url.split('/')[2]})",
-                        )
-                        if rc == 0 and (_os.path.exists(_os.path.join(src_dir, "pyproject.toml"))
-                                        or _os.path.exists(_os.path.join(src_dir, "setup.py"))):
-                            clone_ok = True
-                            break
-                        last_git_err = last[-200:]
-                        if _os.path.exists(src_dir):
-                            _shutil.rmtree(src_dir, ignore_errors=True)
-                    if not clone_ok:
-                        return ("error",
-                                f"git clone 失败（所有镜像都试过）: {last_git_err}\n"
-                                f"请手动从 https://github.com/index-tts/index-tts 下载源码，"
-                                f"解压到 {src_dir} 后重试。")
-
-                # 阶段 1b: pip install 源码
-                download_status[key].update({
-                    "phase": "installing_package",
-                    "status": f"pip install IndexTTS2 源码（from {src_dir}）...",
-                    "progress": 50,
-                })
-                rc, last = _run_with_progress(
-                    [
-                        sys.executable, "-m", "pip", "install", src_dir,
-                        "-i", PIP_INDEX_URL,
-                        "--trusted-host", PIP_TRUSTED_HOST,
-                    ],
-                    label="pip install IndexTTS2",
-                )
-                if rc != 0:
-                    return ("error", f"pip install IndexTTS2 失败（exit {rc}）: {last[-200:]}")
 
         # 重置进度准备下载权重
         download_status[key].update({
