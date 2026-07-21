@@ -1,6 +1,13 @@
 import { create } from 'zustand';
-import type { ModelInfo, SystemStatus, GenerateResponse } from '../types';
+import type { ModelInfo, SystemStatus, GenerateResponse, VoiceRecord } from '../types';
 import { api } from '../api/client';
+
+interface ModelOverride {
+  speed: number;
+  pitch: number;
+  temperature: number;
+  top_p: number;
+}
 
 interface AppState {
   models: ModelInfo[];
@@ -20,13 +27,21 @@ interface AppState {
   selectedModels: { name: string; size: string }[];
   results: Record<string, GenerateResponse>;
 
+  // Phase 3: debug console
+  loadedVoice: VoiceRecord | null;
+  modelOverrides: Record<string, ModelOverride>;
+
   fetchModels: () => Promise<void>;
   fetchSystemStatus: () => Promise<void>;
   generate: () => Promise<void>;
   saveVoice: (name: string, type: 'prompt' | 'clone', referenceAudio?: string) => Promise<void>;
   setInput: (key: string, value: string | number) => void;
   toggleModel: (name: string, size: string) => void;
+  loadVoice: (voice: VoiceRecord) => void;
+  setModelOverride: (modelName: string, key: keyof ModelOverride, value: number) => void;
 }
+
+const defaultOverride = (): ModelOverride => ({ speed: 1.0, pitch: 0, temperature: 0.4, top_p: 0.9 });
 
 export const useStore = create<AppState>((set, get) => ({
   models: [],
@@ -43,6 +58,8 @@ export const useStore = create<AppState>((set, get) => ({
   top_p: 0.9,
   selectedModels: [],
   results: {},
+  loadedVoice: null,
+  modelOverrides: {},
 
   fetchModels: async () => {
     const models = await api.getModels();
@@ -61,13 +78,14 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
     const results: Record<string, GenerateResponse> = {};
     for (const m of state.selectedModels) {
+      const ov = state.modelOverrides[m.name] || defaultOverride();
       const resp = await api.generate({
         model: m.name, size: m.size,
         text: state.text, language: state.language,
         dialect: state.dialect, prompt: state.prompt,
         emotion: state.emotion,
-        speed: state.speed, pitch: state.pitch,
-        temperature: state.temperature, top_p: state.top_p,
+        speed: ov.speed, pitch: ov.pitch,
+        temperature: ov.temperature, top_p: ov.top_p,
       });
       results[`${m.name}_${m.size}`] = resp;
     }
@@ -99,6 +117,39 @@ export const useStore = create<AppState>((set, get) => ({
       set({ selectedModels: current.filter(m => !(m.name === name && m.size === size)) });
     } else {
       set({ selectedModels: [...current, { name, size }] });
+      // Initialize override for this model if not already
+      if (!get().modelOverrides[name]) {
+        set({ modelOverrides: { ...get().modelOverrides, [name]: defaultOverride() } });
+      }
     }
+  },
+
+  loadVoice: (voice) => {
+    set({
+      loadedVoice: voice,
+      prompt: voice.prompt || '',
+      text: '',
+      emotion: '',
+      results: {},
+      modelOverrides: {},
+    });
+    if (voice.params) {
+      set({
+        speed: voice.params.speed ?? 1.0,
+        pitch: voice.params.pitch ?? 0,
+        temperature: voice.params.temperature ?? 0.4,
+        top_p: voice.params.top_p ?? 0.9,
+      });
+    }
+  },
+
+  setModelOverride: (modelName, key, value) => {
+    const current = get().modelOverrides[modelName] || defaultOverride();
+    set({
+      modelOverrides: {
+        ...get().modelOverrides,
+        [modelName]: { ...current, [key]: value },
+      },
+    });
   },
 }));

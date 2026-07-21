@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { api } from '../api/client';
 import type { VoiceRecord } from '../types';
@@ -7,7 +8,8 @@ export function VoiceLibrary() {
   const [voices, setVoices] = useState<VoiceRecord[]>([]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  const { fetchModels } = useStore();
+  const { fetchModels, loadVoice } = useStore();
+  const navigate = useNavigate();
 
   const loadVoices = async () => {
     const data = await api.listVoices(typeFilter || undefined, search || undefined);
@@ -92,12 +94,12 @@ export function VoiceLibrary() {
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(v.prompt || '');
+                    loadVoice(v);
+                    navigate('/debug');
                   }}
-                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-50 text-sm"
-                  title="试听"
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors"
                 >
-                  ▶️
+                  🔬 加载调试
                 </button>
                 <a
                   href={`/api/voices/${v.id}/export`}

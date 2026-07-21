@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { VoiceDesign } from './pages/VoiceDesign';
 import { VoiceClone } from './pages/VoiceClone';
 import { VoiceLibrary } from './pages/VoiceLibrary';
+import { DebugConsole } from './pages/DebugConsole';
 
 function App() {
   return (
@@ -12,7 +13,7 @@ function App() {
           <Route path="/" element={<Navigate to="/voice-design" replace />} />
           <Route path="/voice-design" element={<VoiceDesign />} />
           <Route path="/voice-clone" element={<VoiceClone />} />
-          <Route path="/debug" element={<div className="text-gray-400 text-sm">Phase 3 实施</div>} />
+          <Route path="/debug" element={<DebugConsole />} />
           <Route path="/library" element={<VoiceLibrary />} />
         </Route>
       </Routes>
