@@ -7,7 +7,11 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': 'http://localhost:8765',
+      '/api': {
+        target: 'http://localhost:8765',
+        ws: true,  // 启用 WebSocket 代理
+        changeOrigin: true,
+      },
       '/ws': { target: 'ws://localhost:8765', ws: true },
     },
   },

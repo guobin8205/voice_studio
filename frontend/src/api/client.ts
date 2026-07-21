@@ -38,6 +38,38 @@ export const api = {
   generate: (req: GenerateRequest) =>
     request<GenerateResponse>('/generate', { method: 'POST', body: JSON.stringify(req) }),
 
+  // 克隆（multipart 上传）
+  clone: (file: File, req: Omit<GenerateRequest, 'top_p'>) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('model', req.model);
+    fd.append('size', req.size);
+    fd.append('text', req.text);
+    fd.append('language', req.language);
+    if (req.dialect) fd.append('dialect', req.dialect);
+    if (req.emotion) fd.append('emotion', req.emotion);
+    fd.append('speed', String(req.speed));
+    fd.append('pitch', String(req.pitch));
+    fd.append('temperature', String(req.temperature));
+    return fetch(`${BASE}/clone`, { method: 'POST', body: fd }).then(r => r.ok ? r.json() : Promise.reject(new Error(r.statusText)));
+  },
+
+  // 单独上传参考音频（用于先上传再克隆）
+  uploadReference: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch(`${BASE}/upload-reference`, { method: 'POST', body: fd })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(r.statusText))) as Promise<{ path: string; filename: string; size: number }>;
+  },
+
+  // ASR（multipart）
+  uploadForAsr: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch(`${BASE}/asr`, { method: 'POST', body: fd })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(r.statusText))) as Promise<{ text: string; language: string; duration_seconds: number }>;
+  },
+
   // Voices
   listVoices: (type?: string, search?: string) =>
     request<VoiceRecord[]>(`/voices?${new URLSearchParams({ ...(type && { type }), ...(search && { search }) })}`),

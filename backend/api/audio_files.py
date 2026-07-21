@@ -1,21 +1,23 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-import os
+from pathlib import Path
+from backend.config import AUDIO_DIR
 
 router = APIRouter(prefix="/audio", tags=["audio"])
+
+# 限制只能读 AUDIO_DIR 下的文件，防止路径穿越
+AUDIO_DIR_RESOLVED = AUDIO_DIR.resolve()
 
 
 @router.get("/{path:path}")
 async def serve_audio(path: str):
-    """Serve generated audio files"""
-    # Try absolute path first
-    if os.path.isfile(path):
-        return FileResponse(path, media_type="audio/wav")
-
-    # Try relative to backend/data/audio
-    from backend.config import AUDIO_DIR
-    full = AUDIO_DIR / path
-    if full.is_file():
-        return FileResponse(str(full), media_type="audio/wav")
-
-    raise HTTPException(404, "Audio file not found")
+    """Serve generated audio files from AUDIO_DIR only"""
+    # 防路径穿越：解析后必须仍在 AUDIO_DIR 下
+    candidate = (AUDIO_DIR / path).resolve()
+    try:
+        candidate.relative_to(AUDIO_DIR_RESOLVED)
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+    if not candidate.is_file():
+        raise HTTPException(404, "Audio file not found")
+    return FileResponse(str(candidate), media_type="audio/wav")

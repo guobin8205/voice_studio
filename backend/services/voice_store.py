@@ -23,6 +23,9 @@ class VoiceStore:
     def __init__(self):
         self._conn = sqlite3.connect(str(SQLITE_PATH), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # 启用 WAL 模式 + 忙超时，提升并发读写
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._init_table()
 
     def _init_table(self):

@@ -7,10 +7,26 @@ import { LanguageDialectSelect } from '../components/LanguageDialectSelect';
 import { AudioUpload } from '../components/AudioUpload';
 
 export function VoiceClone() {
-  const { fetchModels, text, emotion, setInput, generate, saveVoice, results, selectedModels, generating, generateProgress } = useStore();
+  const speed = useStore(s => s.speed);
+  const pitch = useStore(s => s.pitch);
+  const temperature = useStore(s => s.temperature);
+  const topP = useStore(s => s.top_p);
+  const setInput = useStore(s => s.setInput);
+  const text = useStore(s => s.text);
+  const emotion = useStore(s => s.emotion);
+  const fetchModels = useStore(s => s.fetchModels);
+  const clone = useStore(s => s.clone);
+  const saveVoice = useStore(s => s.saveVoice);
+  const results = useStore(s => s.results);
+  const selectedModels = useStore(s => s.selectedModels);
+  const generating = useStore(s => s.generating);
+  const generateProgress = useStore(s => s.generateProgress);
+  const generateError = useStore(s => s.generateError);
+  const referenceAudioFile = useStore(s => s.referenceAudioFile);
+
   const [voiceName, setVoiceName] = useState('');
 
-  useEffect(() => { fetchModels(); }, []);
+  useEffect(() => { fetchModels(); }, [fetchModels]);
 
   return (
     <div>
@@ -25,8 +41,7 @@ export function VoiceClone() {
         <div className="flex gap-8">
           <div className="flex-1 space-y-5">
             <LanguageDialectSelect />
-
-            <AudioUpload onAsrResult={text => setInput('text', text)} />
+            <AudioUpload onAsrResult={t => setInput('text', t)} />
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">合成文本</label>
@@ -68,17 +83,23 @@ export function VoiceClone() {
             <ModelSelector />
             <ParamSliders />
             <button
-              onClick={generate}
-              disabled={selectedModels.length === 0 || !text || generating}
+              onClick={clone}
+              disabled={selectedModels.length === 0 || !text || generating || !referenceAudioFile}
               className="w-full py-3.5 rounded-xl bg-violet-500 hover:bg-violet-600 disabled:bg-gray-200 text-white font-semibold text-[15px] transition-colors"
             >
               {generating ? `⏳ ${generateProgress}` : `🎭 克隆对比（${selectedModels.length} 个模型）`}
             </button>
+            {!referenceAudioFile && (
+              <div className="text-xs text-amber-600">⚠️ 请先上传参考音频</div>
+            )}
+            {generateError && (
+              <div className="text-xs text-red-500 bg-red-50 p-2 rounded">❌ {generateError}</div>
+            )}
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">克隆结果</label>
               {selectedModels.map(m => (
-                <OutputCard key={`${m.name}_${m.size}`} modelName={m.display_name || m.name} size={m.size} result={results[`${m.name}_${m.size}`]} />
+                <OutputCard key={`${m.name}_${m.size}`} modelName={m.name} size={m.size} result={results[`${m.name}_${m.size}`]} />
               ))}
             </div>
 

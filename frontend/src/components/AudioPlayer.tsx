@@ -7,7 +7,6 @@ interface Props {
 
 export function AudioPlayer({ audioPath, className = '' }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -15,85 +14,46 @@ export function AudioPlayer({ audioPath, className = '' }: Props) {
 
   useEffect(() => {
     if (audioPath) {
-      // If it's a server path, proxy through API
-      const url = audioPath.startsWith('http') || audioPath.startsWith('blob')
-        ? audioPath
-        : `/api/audio/${encodeURIComponent(audioPath)}`;
-      setAudioUrl(url);
+      // 后端返回的路径直接传给 /api/audio/，让后端解析
+      // 用相对文件名（basename）避免路径穿越检查失败
+      const filename = audioPath.split(/[\\/]/).pop() || audioPath;
+      setAudioUrl(`/api/audio/${encodeURIComponent(filename)}`);
+      setPlaying(false);
+      setCurrentTime(0);
+    } else {
+      setAudioUrl('');
     }
   }, [audioPath]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (playing) {
-      audio.pause();
-    } else {
+    if (audio.paused) {
       audio.play().catch(() => {});
+    } else {
+      audio.pause();
     }
-    setPlaying(!playing);
-  }, [playing]);
+  }, []);
 
   const onTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
     setCurrentTime(audio.currentTime);
-    drawWaveform(audio.currentTime / (audio.duration || 1));
   };
 
   const onLoaded = () => {
     const audio = audioRef.current;
     if (!audio) return;
-    setDuration(audio.duration);
+    setDuration(audio.duration || 0);
   };
 
+  // 用真实的播放/暂停事件驱动 UI 状态
+  const onPlay = () => setPlaying(true);
+  const onPause = () => setPlaying(false);
   const onEnded = () => setPlaying(false);
 
-  // Simple waveform drawing
-  const drawWaveform = (progress: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-
-    const bars = 40;
-    const barW = (w / bars) * 0.7;
-    const gap = (w / bars) * 0.3;
-
-    for (let i = 0; i < bars; i++) {
-      // Generate pseudo waveform heights (consistent pattern)
-      const seed = Math.sin(i * 0.6) * 0.5 + Math.sin(i * 1.7) * 0.3 + Math.sin(i * 3.1) * 0.2;
-      const height = Math.abs(seed) * h * 0.8 + h * 0.05;
-
-      const x = i * (barW + gap);
-      const y = (h - height) / 2;
-
-      // Color: purple for played, gray for remaining
-      const playedPct = i / bars;
-      ctx.fillStyle = playedPct <= progress ? '#5b3fd4' : '#e2e8f0';
-      ctx.fillRect(x, y, barW, height);
-    }
-
-    // Progress line
-    const lineX = progress * w;
-    ctx.strokeStyle = '#5b3fd4';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(lineX, 0);
-    ctx.lineTo(lineX, h);
-    ctx.stroke();
-  };
-
-  useEffect(() => {
-    if (audioRef.current && duration > 0) {
-      drawWaveform(currentTime / (duration || 1));
-    }
-  }, [currentTime, duration]);
-
   const formatTime = (t: number) => {
+    if (!isFinite(t)) return '0:00';
     const m = Math.floor(t / 60);
     const s = Math.floor(t % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -107,6 +67,8 @@ export function AudioPlayer({ audioPath, className = '' }: Props) {
     );
   }
 
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
   return (
     <div className={`${className}`}>
       <audio
@@ -114,6 +76,8 @@ export function AudioPlayer({ audioPath, className = '' }: Props) {
         src={audioUrl}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoaded}
+        onPlay={onPlay}
+        onPause={onPause}
         onEnded={onEnded}
         preload="auto"
       />
@@ -124,20 +88,19 @@ export function AudioPlayer({ audioPath, className = '' }: Props) {
         >
           {playing ? '⏸' : '▶'}
         </button>
-        <canvas
-          ref={canvasRef}
-          width={200}
-          height={32}
-          className="flex-1 h-8 rounded cursor-pointer"
+        <div
+          className="flex-1 h-2 bg-gray-100 rounded-full relative cursor-pointer"
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const pct = (e.clientX - rect.left) / rect.width;
-            if (audioRef.current) {
-              audioRef.current.currentTime = pct * (audioRef.current.duration || 0);
+            if (audioRef.current && duration > 0) {
+              audioRef.current.currentTime = pct * duration;
             }
           }}
-        />
-        <span className="text-xs text-gray-400 font-mono w-16 text-right">
+        >
+          <div className="h-full bg-violet-500 rounded-full" style={{ width: `${progress}%` }} />
+        </div>
+        <span className="text-xs text-gray-400 font-mono w-20 text-right shrink-0">
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>

@@ -27,6 +27,7 @@ app.include_router(audio_files.router, prefix="/api")
 
 # 生产模式：单进程，FastAPI 同时服务前端静态文件
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+FRONTEND_DIST_RESOLVED = FRONTEND_DIST.resolve() if FRONTEND_DIST.exists() else None
 if FRONTEND_DIST.exists():
     # 静态资源（带 hash 的 JS/CSS）
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
@@ -34,11 +35,17 @@ if FRONTEND_DIST.exists():
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str, request: Request):
         """所有非 API 路径都返回 index.html（React Router 处理）"""
-        # 先尝试匹配真实文件
-        candidate = FRONTEND_DIST / full_path
-        if full_path and candidate.is_file():
+        if not full_path:
+            return FileResponse(FRONTEND_DIST / "index.html")
+        # 防路径穿越
+        candidate = (FRONTEND_DIST / full_path).resolve()
+        try:
+            candidate.relative_to(FRONTEND_DIST_RESOLVED)
+        except (ValueError, TypeError):
+            return FileResponse(FRONTEND_DIST / "index.html")
+        if candidate.is_file():
             return FileResponse(candidate)
-        # 否则返回 SPA index
+        # SPA fallback
         return FileResponse(FRONTEND_DIST / "index.html")
 
 

@@ -14,7 +14,6 @@ class GPUStatus:
 
 
 def _get_nvml():
-    """Try nvidia-ml-py first, then pynvml."""
     try:
         import pynvml as nvml
         return nvml

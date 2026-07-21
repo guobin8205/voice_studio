@@ -11,7 +11,6 @@ interface ModelOverride {
 
 interface AppState {
   models: ModelInfo[];
-  loadedModel: { name: string; size: string } | null;
   systemStatus: SystemStatus | null;
 
   language: string;
@@ -26,17 +25,24 @@ interface AppState {
 
   selectedModels: { name: string; size: string }[];
   results: Record<string, GenerateResponse>;
+  generating: boolean;
+  generateProgress: string;
+  generateError: string | null;
+
+  // 克隆相关
+  referenceAudioFile: File | null;
+  referenceAudioPath: string | null;
 
   // Phase 3: debug console
   loadedVoice: VoiceRecord | null;
   modelOverrides: Record<string, ModelOverride>;
-  generating: boolean;
-  generateProgress: string;
 
   fetchModels: () => Promise<void>;
   fetchSystemStatus: () => Promise<void>;
   generate: () => Promise<void>;
-  saveVoice: (name: string, type: 'prompt' | 'clone', referenceAudio?: string) => Promise<void>;
+  clone: () => Promise<void>;
+  setReferenceAudio: (file: File | null, path: string | null) => void;
+  saveVoice: (name: string, type: 'prompt' | 'clone') => Promise<void>;
   setInput: (key: string, value: string | number) => void;
   toggleModel: (name: string, size: string) => void;
   loadVoice: (voice: VoiceRecord) => void;
@@ -47,7 +53,6 @@ const defaultOverride = (): ModelOverride => ({ speed: 1.0, pitch: 0, temperatur
 
 export const useStore = create<AppState>((set, get) => ({
   models: [],
-  loadedModel: null,
   systemStatus: null,
   language: 'zh',
   dialect: '普通话',
@@ -60,10 +65,13 @@ export const useStore = create<AppState>((set, get) => ({
   top_p: 0.9,
   selectedModels: [],
   results: {},
-  loadedVoice: null,
-  modelOverrides: {},
   generating: false,
   generateProgress: '',
+  generateError: null,
+  referenceAudioFile: null,
+  referenceAudioPath: null,
+  loadedVoice: null,
+  modelOverrides: {},
 
   fetchModels: async () => {
     try {
@@ -88,7 +96,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   generate: async () => {
     const state = get();
-    set({ generating: true, generateProgress: '', results: {} });
+    set({ generating: true, generateProgress: '', generateError: null, results: {} });
     const results: Record<string, GenerateResponse> = {};
 
     try {
@@ -107,18 +115,52 @@ export const useStore = create<AppState>((set, get) => ({
         results[`${m.name}_${m.size}`] = resp;
       }
       set({ results, generateProgress: '生成完成' });
+    } catch (e: any) {
+      set({ generateError: e.message || String(e), generateProgress: `❌ 生成失败: ${e.message || e}` });
     } finally {
       set({ generating: false });
     }
   },
 
-  saveVoice: async (name, type, referenceAudio) => {
+  clone: async () => {
+    const state = get();
+    if (!state.referenceAudioFile) {
+      set({ generateError: '请先上传参考音频' });
+      return;
+    }
+    set({ generating: true, generateProgress: '', generateError: null, results: {} });
+    const results: Record<string, GenerateResponse> = {};
+
+    try {
+      for (let i = 0; i < state.selectedModels.length; i++) {
+        const m = state.selectedModels[i];
+        set({ generateProgress: `正在克隆 ${m.name} (${i + 1}/${state.selectedModels.length})...` });
+        const ov = state.modelOverrides[m.name] || defaultOverride();
+        const resp = await api.clone(state.referenceAudioFile, {
+          model: m.name, size: m.size,
+          text: state.text, language: state.language,
+          dialect: state.dialect, emotion: state.emotion,
+          speed: ov.speed, pitch: ov.pitch, temperature: ov.temperature,
+        });
+        results[`${m.name}_${m.size}`] = resp;
+      }
+      set({ results, generateProgress: '克隆完成' });
+    } catch (e: any) {
+      set({ generateError: e.message || String(e), generateProgress: `❌ 克隆失败: ${e.message || e}` });
+    } finally {
+      set({ generating: false });
+    }
+  },
+
+  setReferenceAudio: (file, path) => set({ referenceAudioFile: file, referenceAudioPath: path }),
+
+  saveVoice: async (name, type) => {
     const state = get();
     await api.createVoice({
       name,
       type,
       prompt: type === 'prompt' ? state.prompt : undefined,
-      reference_audio: referenceAudio,
+      reference_audio: type === 'clone' ? state.referenceAudioPath || undefined : undefined,
       params: {
         speed: state.speed,
         pitch: state.pitch,
@@ -128,7 +170,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  setInput: (key, value) => set({ [key]: value } as any),
+  setInput: (key, value) => set({ [key]: value } as Partial<AppState> as any),
 
   toggleModel: (name, size) => {
     const current = get().selectedModels;
@@ -137,7 +179,6 @@ export const useStore = create<AppState>((set, get) => ({
       set({ selectedModels: current.filter(m => !(m.name === name && m.size === size)) });
     } else {
       set({ selectedModels: [...current, { name, size }] });
-      // Initialize override for this model if not already
       if (!get().modelOverrides[name]) {
         set({ modelOverrides: { ...get().modelOverrides, [name]: defaultOverride() } });
       }
@@ -152,6 +193,9 @@ export const useStore = create<AppState>((set, get) => ({
       emotion: '',
       results: {},
       modelOverrides: {},
+      generateError: null,
+      referenceAudioPath: voice.reference_audio || null,
+      referenceAudioFile: null,
     });
     if (voice.params) {
       set({

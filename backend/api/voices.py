@@ -57,9 +57,8 @@ async def delete_voice(voice_id: str):
 async def export_voice_endpoint(voice_id: str):
     """导出音色为 zip 包"""
     try:
-        zip_data = export_voice(voice_id)
-        record = store.get(voice_id)
-        filename = f"{record.name}_{voice_id}.zip" if record else f"{voice_id}.zip"
+        zip_data, voice_name = export_voice(voice_id)
+        filename = f"{voice_name}_{voice_id}.zip"
         return Response(
             content=zip_data,
             media_type="application/zip",

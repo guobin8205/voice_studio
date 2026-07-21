@@ -1,14 +1,18 @@
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import asyncio
-import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 from backend.engine.manager import ModelManager
 
 router = APIRouter(prefix="/models", tags=["models"])
 manager = ModelManager()
 
+# 下载专用线程池（避免占用默认线程池）
+_download_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
+
 # Model download tracking
-download_status: dict[str, dict] = {}  # {model_name: {progress, status, error}}
+download_status: dict[str, dict] = {}
 
 # ModelScope model IDs (国内首选)，HuggingFace 作为 fallback
 MODEL_REPOS = {
@@ -216,8 +220,8 @@ async def _download_model(name: str):
             return ("error", f"modelscope: {last_err}; huggingface: {str(e)[:80]}")
 
     try:
-        loop = asyncio.get_event_loop()
-        result, err = await loop.run_in_executor(None, _do_download)
+        loop = asyncio.get_running_loop()
+        result, err = await loop.run_in_executor(_download_executor, _do_download)
         if result == "ok":
             download_status[name].update({
                 "downloading": False, "progress": 100,

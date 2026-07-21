@@ -35,15 +35,29 @@ class ModelManager:
                 self._start_idle_timer()
                 return self._loaded[2]
 
-            if self._loaded:
-                self._unload_current()
-
+            # 取出 adapter 引用后释放锁，让长时加载不阻塞其他查询
             adapter = self._models[name]
-            adapter.load(size)
+            need_unload = self._loaded
+            self._loaded = None  # 标记为切换中
+
+        # 在锁外执行卸载和加载（可能耗时数分钟）
+        if need_unload:
+            _, _, old_adapter = need_unload
+            try:
+                old_adapter.unload()
+            except Exception:
+                pass
+            if self._idle_timer:
+                self._idle_timer.cancel()
+                self._idle_timer = None
+
+        adapter.load(size)
+
+        with self._lock:
             self._loaded = (name, size, adapter)
             self._last_used = time.time()
             self._start_idle_timer()
-            return adapter
+        return adapter
 
     def _unload_current(self) -> None:
         if self._loaded:

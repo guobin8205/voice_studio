@@ -6,9 +6,19 @@ import { OutputCard } from '../components/OutputCard';
 import { LanguageDialectSelect } from '../components/LanguageDialectSelect';
 
 export function VoiceDesign() {
-  const { fetchModels, text, prompt, setInput, generate, saveVoice, results, selectedModels, generating, generateProgress } = useStore();
+  const fetchModels = useStore(s => s.fetchModels);
+  const text = useStore(s => s.text);
+  const prompt = useStore(s => s.prompt);
+  const setInput = useStore(s => s.setInput);
+  const generate = useStore(s => s.generate);
+  const saveVoice = useStore(s => s.saveVoice);
+  const results = useStore(s => s.results);
+  const selectedModels = useStore(s => s.selectedModels);
+  const generating = useStore(s => s.generating);
+  const generateProgress = useStore(s => s.generateProgress);
+  const generateError = useStore(s => s.generateError);
 
-  useEffect(() => { fetchModels(); }, []);
+  useEffect(() => { fetchModels(); }, [fetchModels]);
 
   return (
     <div>
@@ -21,7 +31,6 @@ export function VoiceDesign() {
 
       <div className="bg-white rounded-2xl border border-gray-100 p-7 shadow-sm">
         <div className="flex gap-8">
-          {/* Left */}
           <div className="flex-1 space-y-5">
             <LanguageDialectSelect />
 
@@ -52,7 +61,6 @@ export function VoiceDesign() {
             <ParamSliders />
           </div>
 
-          {/* Right */}
           <div className="flex-1 space-y-5">
             <ModelSelector />
             <button
@@ -62,6 +70,9 @@ export function VoiceDesign() {
             >
               {generating ? `⏳ ${generateProgress}` : `🎤 生成对比（${selectedModels.length} 个模型）`}
             </button>
+            {generateError && (
+              <div className="text-xs text-red-500 bg-red-50 p-2 rounded">❌ {generateError}</div>
+            )}
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">生成结果</label>
