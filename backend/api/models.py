@@ -18,10 +18,18 @@ download_status: dict[str, dict] = {}
 MODEL_PACKAGES = {
     "qwen3tts": "qwen-tts",
     "voxcpm2": "voxcpm",
-    # IndexTTS2 没有 PyPI 包，但官方推荐用 modelscope download（包含源码 + 权重）
+    # IndexTTS2 没有 PyPI 包，源码在 GitHub/Gitee，权重在 ModelScope
 }
 
-# IndexTTS2 ModelScope 仓库 ID
+# IndexTTS2 源码仓库（Gitee 镜像优先，国内速度快）
+INDEXTTS2_SOURCE_URLS = [
+    "https://gitee.com/mirrors/index-tts.git",
+    "https://gitcode.com/index-tts/index-tts.git",
+    "https://github.com/index-tts/index-tts.git",
+]
+INDEXTTS2_SRC_DIR = "./third_party/IndexTTS2"
+
+# IndexTTS2 权重 ModelScope 仓库（纯权重，不含源码）
 INDEXTTS2_MODELSCOPE_REPO = "IndexTeam/IndexTTS-2"
 
 # 每个模型的真实规格（替代之前错误的 1.7B/0.6B）
@@ -341,50 +349,51 @@ async def _download_model(name: str, size: str = ""):
             except Exception as e:
                 return ("error", f"pip install {pkg} 异常: {e}")
 
-        # IndexTTS2 特殊处理：从 ModelScope 拉 source，然后 pip install .
+        # IndexTTS2 特殊处理：源码从 Gitee/GitHub 拉 + pip install，权重在 ModelScope
         if name == "indextts2":
             import os as _os
             import shutil as _shutil
-            src_dir = "./third_party/IndexTTS2"
+            src_dir = INDEXTTS2_SRC_DIR
             try:
-                # 已装就跳过
                 import importlib
                 importlib.import_module("indextts")
             except ImportError:
-                download_status[key].update({
-                    "phase": "installing_package",
-                    "status": "从 ModelScope 下载 IndexTTS2 源码...",
-                    "progress": 0,
-                })
-                # 用 modelscope snapshot_download 拉源码（含 pyproject.toml 等）
-                try:
-                    from modelscope.hub.snapshot_download import snapshot_download as _ms
-                except ImportError:
-                    try:
-                        from modelscope import snapshot_download as _ms
-                    except ImportError:
-                        return ("error", "modelscope 未安装，无法下载 IndexTTS2 源码")
+                # 阶段 1a: git clone 源码
+                if not _os.path.exists(src_dir):
+                    _os.makedirs("./third_party", exist_ok=True)
+                    clone_ok = False
+                    last_git_err = ""
+                    for git_url in INDEXTTS2_SOURCE_URLS:
+                        download_status[key].update({
+                            "phase": "installing_package",
+                            "status": f"git clone IndexTTS2 源码（{git_url.split('/')[2]}）...",
+                            "progress": 0,
+                        })
+                        rc, last = _run_with_progress(
+                            ["git", "clone", "--depth", "1", git_url, src_dir],
+                            label=f"git clone ({git_url.split('/')[2]})",
+                        )
+                        if rc == 0:
+                            clone_ok = True
+                            break
+                        last_git_err = last[-200:]
+                        # 清理失败目录
+                        if _os.path.exists(src_dir):
+                            _shutil.rmtree(src_dir, ignore_errors=True)
+                    if not clone_ok:
+                        return ("error", f"git clone IndexTTS2 源码失败（所有镜像都试过）: {last_git_err}")
 
-                try:
-                    _ms(INDEXTTS2_MODELSCOPE_REPO, local_dir=src_dir)
-                except Exception as e:
-                    return ("error", f"从 ModelScope 下载 IndexTTS2 源码失败: {str(e)[:200]}")
-
-                # pip install .
-                if _os.path.exists(_os.path.join(src_dir, "pyproject.toml")) or \
-                   _os.path.exists(_os.path.join(src_dir, "setup.py")):
-                    rc, last = _run_with_progress(
-                        [
-                            sys.executable, "-m", "pip", "install", src_dir,
-                            "-i", PIP_INDEX_URL,
-                            "--trusted-host", PIP_TRUSTED_HOST,
-                        ],
-                        label="pip install IndexTTS2 (from source)",
-                    )
-                    if rc != 0:
-                        return ("error", f"pip install IndexTTS2 失败（exit {rc}）: {last[-200:]}")
-                else:
-                    return ("error", f"IndexTTS2 源码不完整（无 pyproject.toml/setup.py）: {src_dir}")
+                # 阶段 1b: pip install 源码
+                rc, last = _run_with_progress(
+                    [
+                        sys.executable, "-m", "pip", "install", src_dir,
+                        "-i", PIP_INDEX_URL,
+                        "--trusted-host", PIP_TRUSTED_HOST,
+                    ],
+                    label="pip install IndexTTS2 (from source)",
+                )
+                if rc != 0:
+                    return ("error", f"pip install IndexTTS2 失败（exit {rc}）: {last[-200:]}")
 
         # 重置进度准备下载权重
         download_status[key].update({
