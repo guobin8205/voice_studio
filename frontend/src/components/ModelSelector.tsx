@@ -137,39 +137,42 @@ export function ModelSelector() {
 
                 return (
                   <div key={size} className="flex items-center gap-1">
-                    {/* Size pill - 点击切换选中 */}
+                    {/* Size pill：
+                        - 紫色填充 = 选中用于生成
+                        - 白色边框 = 已下载但未选中（可点击选中）
+                        - 虚线灰色 = 未下载（禁用）
+                        - ✓ 表示"可用"（已下载），跟选中无关 */}
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleModel(m.name, size); }}
-                      disabled={!isDownloaded && !isDownloading}
-                      className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${
+                      disabled={!isDownloaded}
+                      className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors flex items-center gap-1 ${
                         isSelected
                           ? 'bg-violet-500 text-white border-violet-500'
                           : isDownloaded
-                            ? 'border-gray-200 text-gray-700 bg-white hover:border-violet-300 cursor-pointer'
+                            ? 'border-gray-300 text-gray-700 bg-white hover:border-violet-400 hover:bg-violet-50 cursor-pointer'
                             : 'border-dashed border-gray-300 text-gray-400 bg-gray-50 cursor-not-allowed'
                       }`}
                       title={
                         isDownloading ? '下载中…' :
                         isFailed ? `下载失败: ${st?.error || ''}` :
-                        !isDownloaded ? '未下载' :
-                        isSelected ? '已选中，点击取消' : '已下载，点击选中'
+                        !isDownloaded ? '未下载（点击📥下载）' :
+                        isSelected ? '已选中，再次点击取消' : '已下载可用，点击选中'
                       }
                     >
                       {size}
+                      {/* 可用标记（独立于选中状态） */}
+                      {isDownloaded && !isSelected && <span className="text-green-500 ml-0.5">✓</span>}
                     </button>
 
                     {/* 下载状态指示 */}
                     {isDownloading && (
                       <span className="text-xs text-blue-500 font-mono">{st?.progress || 0}%</span>
                     )}
-                    {isDownloaded && !isDownloading && (
-                      <span className="text-xs text-green-500" title="已下载">✓</span>
-                    )}
                     {isFailed && (
                       <span className="text-xs text-red-400" title={st?.error || '失败'}>⚠</span>
                     )}
 
-                    {/* 下载按钮 */}
+                    {/* 下载按钮（未下载时显示） */}
                     {!isDownloaded && !isDownloading && (
                       <button
                         onClick={(e) => { e.stopPropagation(); startDownload(m.name, size); }}
