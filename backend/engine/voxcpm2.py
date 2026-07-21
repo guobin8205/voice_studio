@@ -18,7 +18,7 @@ class VoxCPM2Adapter(ModelInterface):
         return ModelInfo(
             name="voxcpm2",
             display_name="VoxCPM2",
-            sizes=["1.7B", "0.6B"],
+            sizes=["2B"],
             capabilities=[ModelCapability.VOICE_DESIGN],
             supported_languages=["zh", "en"],
             supported_dialects=["普通话"],
@@ -32,7 +32,7 @@ class VoxCPM2Adapter(ModelInterface):
                 "voxcpm package not installed. Run: pip install voxcpm"
             )
 
-        # VoxCPM2 has one model (~2B), size param selects inference config
+        # VoxCPM2 是单一 2B 模型
         self._model = VoxCPM.from_pretrained(
             "openbmb/VoxCPM2",
             load_denoiser=True,
@@ -61,8 +61,8 @@ class VoxCPM2Adapter(ModelInterface):
         if input.emotion:
             text = f"({input.emotion}) {text}"
 
-        # Adjust inference speed based on size
-        timesteps = 10 if self._loaded_size == "1.7B" else 7
+        # VoxCPM2 单一规格，固定 timesteps（用户可通过参数微调）
+        timesteps = 10
 
         wav = self._model.generate(
             text=text,
@@ -98,7 +98,7 @@ class VoxCPM2Adapter(ModelInterface):
         if input.emotion:
             prompt_text = f"{prompt_text} ({input.emotion})"
 
-        timesteps = 10 if self._loaded_size == "1.7B" else 7
+        timesteps = 10
 
         wav = self._model.generate(
             text=input.text,

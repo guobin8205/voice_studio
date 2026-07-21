@@ -19,7 +19,7 @@ class IndexTTS2Adapter(ModelInterface):
         return ModelInfo(
             name="indextts2",
             display_name="IndexTTS2",
-            sizes=["1.7B", "0.6B"],
+            sizes=["standard"],
             capabilities=[ModelCapability.VOICE_DESIGN, ModelCapability.VOICE_CLONE],
             supported_languages=["zh", "en"],
             supported_dialects=["普通话", "粤语"],

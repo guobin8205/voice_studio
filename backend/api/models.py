@@ -21,6 +21,21 @@ MODEL_PACKAGES = {
     # indextts2 不在 PyPI，需要 git clone，单独处理
 }
 
+# 每个模型的真实规格（替代之前错误的 1.7B/0.6B）
+MODEL_REAL_SIZES = {
+    "qwen3tts": ["1.7B", "0.6B"],
+    "indextts2": ["standard"],   # IndexTTS2 只有一种规格
+    "voxcpm2": ["2B"],           # VoxCPM2 是 2B 参数
+}
+
+# pip 国内镜像（清华源，加速国内下载）
+PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple"
+PIP_TRUSTED_HOST = "pypi.tuna.tsinghua.edu.cn"
+
+# IndexTTS2 国内镜像（gitee）
+INDEXTTS2_GITEE_URL = "https://gitee.com/mirrors/index-tts.git"
+INDEXTTS2_GITHUB_URL = "https://github.com/index-tts/index-tts.git"
+
 # ModelScope model IDs (国内首选)，HuggingFace 作为 fallback
 MODEL_REPOS = {
     "qwen3tts": {
@@ -205,7 +220,8 @@ async def _download_model(name: str):
         import sys
 
         def _run_with_progress(cmd: list, label: str, phase_msg_template: str = "{label}: {line}"):
-            """运行命令，实时把 stdout/stderr 推送到 download_status"""
+            """运行命令，实时把 stdout/stderr 推送到 download_status。
+            返回 (returncode, last_output_line)。"""
             download_status[name].update({"phase": "installing_package", "progress": 0})
             proc = subprocess.Popen(
                 cmd,
@@ -217,35 +233,40 @@ async def _download_model(name: str):
                 errors="replace",
             )
             lines_seen = 0
+            last_line = ""
             for line in proc.stdout:
-                line = line.strip()
+                line = line.rstrip()
                 if not line:
                     continue
                 lines_seen += 1
-                # 把最新输出作为 phase_message，前端能看到
+                last_line = line
                 download_status[name].update({
-                    "status": phase_msg_template.format(label=label, line=line[-80:]),
-                    # pip 安装没有真实进度，给一个递增的虚假进度（最多 95%）
-                    "progress": min(lines_seen * 5, 95),
+                    "status": phase_msg_template.format(label=label, line=line[-100:]),
+                    "progress": min(lines_seen * 3, 95),
                 })
             proc.wait()
-            return proc.returncode
+            return proc.returncode, last_line
 
-        # 阶段 1: pip 安装推理包
+        # 阶段 1: pip 安装推理包（用清华镜像加速国内下载）
         pkg = MODEL_PACKAGES.get(name)
         if pkg:
             try:
-                rc = _run_with_progress(
-                    [sys.executable, "-m", "pip", "install", pkg, "--progress-bar=on"],
+                rc, last = _run_with_progress(
+                    [
+                        sys.executable, "-m", "pip", "install", pkg,
+                        "-i", PIP_INDEX_URL,
+                        "--trusted-host", PIP_TRUSTED_HOST,
+                        "--progress-bar=on",
+                    ],
                     label=f"pip install {pkg}",
                     phase_msg_template="{line}",
                 )
                 if rc != 0:
-                    return ("error", f"pip install {pkg} 失败（exit {rc}）")
+                    return ("error", f"pip install {pkg} 失败（exit {rc}）: {last[-200:]}")
             except Exception as e:
                 return ("error", f"pip install {pkg} 异常: {e}")
 
-        # indextts2 特殊处理：git clone
+        # indextts2 特殊处理：git clone（优先 Gitee 镜像）+ pip install
         if name == "indextts2":
             try:
                 import importlib
@@ -256,21 +277,33 @@ async def _download_model(name: str):
                     os.makedirs("./third_party", exist_ok=True)
                     download_status[name].update({
                         "phase": "installing_package",
-                        "status": "git clone IndexTTS2...",
+                        "status": "git clone IndexTTS2 (gitee 镜像)...",
                         "progress": 0,
                     })
-                    rc = _run_with_progress(
-                        ["git", "clone", "--depth", "1", "https://github.com/index-tts/index-tts.git", target_src],
-                        label="git clone IndexTTS2",
-                    )
-                    if rc != 0:
-                        return ("error", f"git clone IndexTTS2 失败（exit {rc}）")
-                rc = _run_with_progress(
-                    [sys.executable, "-m", "pip", "install", "-e", target_src],
-                    label="pip install IndexTTS2",
+                    # 先试 Gitee，失败再试 GitHub
+                    for git_url in [INDEXTTS2_GITEE_URL, INDEXTTS2_GITHUB_URL]:
+                        rc, last = _run_with_progress(
+                            ["git", "clone", "--depth", "1", git_url, target_src],
+                            label=f"git clone ({git_url.split('/')[2]})",
+                        )
+                        if rc == 0:
+                            break
+                        # 清理失败的目录
+                        if os.path.exists(target_src):
+                            import shutil
+                            shutil.rmtree(target_src, ignore_errors=True)
+                    else:
+                        return ("error", f"git clone IndexTTS2 失败（Gitee 和 GitHub 都试过）: {last[-200:]}")
+                rc, last = _run_with_progress(
+                    [
+                        sys.executable, "-m", "pip", "install", "-e", target_src,
+                        "-i", PIP_INDEX_URL,
+                        "--trusted-host", PIP_TRUSTED_HOST,
+                    ],
+                    label="pip install IndexTTS2 (editable)",
                 )
                 if rc != 0:
-                    return ("error", f"pip install IndexTTS2 失败（exit {rc}）")
+                    return ("error", f"pip install IndexTTS2 失败（exit {rc}）: {last[-200:]}")
 
         # 重置进度准备下载权重
         download_status[name].update({
