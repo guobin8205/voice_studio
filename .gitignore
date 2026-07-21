@@ -3,3 +3,6 @@ node_modules/
 __pycache__/
 .venv/
 backend/data/
+.tts_studio.pid
+backend/data/
+models/
