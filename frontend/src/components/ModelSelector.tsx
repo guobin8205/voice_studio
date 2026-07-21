@@ -18,19 +18,36 @@ export function ModelSelector() {
   const [sizeStatus, setSizeStatus] = useState<Record<string, SizeStatus>>({});
   const [activeDownload, setActiveDownload] = useState<string | null>(null);
   const wsRefs = useRef<Record<string, WebSocket>>({});
+  // 记录已经自动选中的 size，避免重复触发
+  const autoSelectedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     models.forEach(m => {
       api.getDownloadStatus(m.name).then((res: any) => {
         if (res.sizes) {
           const updates: Record<string, SizeStatus> = {};
+          let firstDownloaded: string | null = null;
           Object.entries(res.sizes).forEach(([sz, st]: [string, any]) => {
-            updates[`${m.name}_${sz}`] = st;
+            const key = `${m.name}_${sz}`;
+            updates[key] = st;
+            // 记录第一个已下载的 size（用于自动选中）
+            if (st.status === 'completed' && !firstDownloaded) {
+              firstDownloaded = sz;
+            }
           });
           setSizeStatus(prev => ({ ...prev, ...updates }));
+          // 如果当前没有选中任何模型，自动选第一个已下载的
+          if (firstDownloaded && selectedModels.length === 0) {
+            const key = `${m.name}_${firstDownloaded}`;
+            if (!autoSelectedRef.current.has(key)) {
+              autoSelectedRef.current.add(key);
+              toggleModel(m.name, firstDownloaded);
+            }
+          }
         }
       }).catch(() => {});
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models]);
 
   useEffect(() => {
@@ -55,6 +72,16 @@ export function ModelSelector() {
         try {
           const data = JSON.parse(e.data);
           setSizeStatus(prev => ({ ...prev, [key]: data }));
+          // 下载完成自动选中
+          if (data.status === 'completed') {
+            // 异步触发，避免在 ws 回调里更新 store 引起警告
+            setTimeout(() => {
+              if (!autoSelectedRef.current.has(key)) {
+                autoSelectedRef.current.add(key);
+                toggleModel(name, size);
+              }
+            }, 0);
+          }
           if (data.status === 'completed' || data.status === 'error') {
             ws.close();
             delete wsRefs.current[key];
