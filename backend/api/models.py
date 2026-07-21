@@ -14,6 +14,13 @@ _download_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
 # Model download tracking
 download_status: dict[str, dict] = {}
 
+# 每个模型对应的推理包（pip 安装）
+MODEL_PACKAGES = {
+    "qwen3tts": "qwen-tts",
+    "voxcpm2": "voxcpm",
+    # indextts2 不在 PyPI，需要 git clone，单独处理
+}
+
 # ModelScope model IDs (国内首选)，HuggingFace 作为 fallback
 MODEL_REPOS = {
     "qwen3tts": {
@@ -88,6 +95,8 @@ async def download_status_endpoint(name: str):
         "downloading": status.get("downloading", False),
         "progress": status.get("progress", 0),
         "status": status.get("status", "not_started"),  # not_started | downloading | completed | error
+        "phase": status.get("phase", "idle"),  # idle | installing_package | downloading_weights
+        "phase_message": status.get("status", ""),  # 详细状态文本
         "error": status.get("error"),
     }
 
@@ -119,6 +128,8 @@ async def download_progress_ws(websocket: WebSocket, name: str):
                 "downloading": status.get("downloading", False),
                 "progress": status.get("progress", 0),
                 "status": status.get("status", "not_started"),
+                "phase": status.get("phase", "idle"),
+                "phase_message": status.get("status", ""),
                 "error": status.get("error"),
             })
             if status.get("status") in ("completed", "error"):
@@ -190,7 +201,59 @@ async def _download_model(name: str):
 
     # 同步下载函数（在线程池执行）
     def _do_download():
-        # 方法1: ModelScope
+        import subprocess
+        import sys
+
+        # 阶段 1: pip 安装推理包（在线程中执行，不阻塞 event loop）
+        pkg = MODEL_PACKAGES.get(name)
+        if pkg:
+            try:
+                download_status[name].update({
+                    "phase": "installing_package",
+                    "status": f"正在安装推理包 {pkg}...",
+                    "progress": 0,
+                })
+                # 用 subprocess 实时输出，但这里简单等待完成
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", pkg, "--quiet"],
+                    capture_output=True, text=True, timeout=600,
+                )
+                if result.returncode != 0:
+                    return ("error", f"pip install {pkg} 失败: {result.stderr[-200:]}")
+            except subprocess.TimeoutExpired:
+                return ("error", f"pip install {pkg} 超时（10 分钟）")
+            except Exception as e:
+                return ("error", f"pip install {pkg} 异常: {e}")
+
+        # indextts2 特殊处理：git clone
+        if name == "indextts2":
+            try:
+                import importlib
+                importlib.import_module("indextts")
+            except ImportError:
+                download_status[name].update({
+                    "phase": "installing_package",
+                    "status": "正在 git clone IndexTTS2...",
+                    "progress": 0,
+                })
+                target_src = "./third_party/IndexTTS2"
+                if not os.path.exists(target_src):
+                    os.makedirs("./third_party", exist_ok=True)
+                    result = subprocess.run(
+                        ["git", "clone", "--depth", "1", "https://github.com/index-tts/index-tts.git", target_src],
+                        capture_output=True, text=True, timeout=300,
+                    )
+                    if result.returncode != 0:
+                        return ("error", f"git clone IndexTTS2 失败: {result.stderr[-200:]}")
+                    # pip install -e
+                    subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "-e", target_src, "--quiet"],
+                        capture_output=True, text=True, timeout=600,
+                    )
+        # 重置进度准备下载权重
+        download_status[name].update({"phase": "downloading_weights", "progress": 0, "status": "正在下载权重..."})
+
+        # 阶段 2: ModelScope 下载权重
         try:
             from modelscope.hub.snapshot_download import snapshot_download as ms_download
         except ImportError:
@@ -208,7 +271,7 @@ async def _download_model(name: str):
         else:
             last_err = "modelscope not installed"
 
-        # 方法2: HuggingFace 回退
+        # 阶段 3: HuggingFace 回退
         try:
             from huggingface_hub import snapshot_download
             hf_repo = HF_REPOS.get(name, {}).get("1.7B", repo_id)

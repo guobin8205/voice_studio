@@ -6,6 +6,8 @@ interface DownloadState {
   downloading: boolean;
   progress: number;
   status: string;
+  phase?: string;
+  phase_message?: string;
   error: string | null;
 }
 
@@ -109,9 +111,11 @@ export function ModelSelector() {
               ))}
               <div className="ml-auto">
                 {dl?.status === 'completed' ? (
-                  <span className="text-xs text-green-500 font-medium">✓ 已下载</span>
+                  <span className="text-xs text-green-500 font-medium">✓ 已就绪</span>
                 ) : dl?.downloading ? (
-                  <span className="text-xs text-blue-500 font-medium">⏳ {dl.progress}%</span>
+                  <span className="text-xs text-blue-500 font-medium">
+                    {dl.phase === 'installing_package' ? '📦 安装包' : '⏳'} {dl.progress}%
+                  </span>
                 ) : (
                   <button
                     onClick={(e) => { e.stopPropagation(); startDownload(m.name); }}
@@ -124,8 +128,16 @@ export function ModelSelector() {
             </div>
             {dl?.downloading && (
               <div className="mt-1 mx-4">
+                {dl.phase_message && (
+                  <div className="text-xs text-gray-500 mb-1">{dl.phase_message}</div>
+                )}
                 <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${dl.progress}%` }} />
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      dl.phase === 'installing_package' ? 'bg-amber-500' : 'bg-blue-500'
+                    }`}
+                    style={{ width: `${dl.progress}%` }}
+                  />
                 </div>
               </div>
             )}
