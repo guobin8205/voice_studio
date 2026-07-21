@@ -282,10 +282,28 @@ async def _download_model(name: str, size: str = ""):
 
         def _run_with_progress(cmd: list, label: str, phase_msg_template: str = "{label}: {line}"):
             """运行命令，实时把 stdout/stderr 推送到 download_status。
-            返回 (returncode, last_output_line)。"""
+            返回 (returncode, last_output_line)。
+            自动检测用 uv 还是 pip（uv venv 默认不带 pip）。"""
             download_status[key].update({"phase": "installing_package", "progress": 0})
+
+            # 检测是否在 uv venv 中（没有 pip 就用 uv pip）
+            actual_cmd = list(cmd)
+            if cmd and cmd[0] == sys.executable and len(cmd) > 1 and cmd[1] == "-m" and cmd[2] == "pip":
+                # 看这个 python 有没有 pip 模块
+                try:
+                    subprocess.run(
+                        [sys.executable, "-c", "import pip"],
+                        capture_output=True, timeout=5,
+                    ).check_returncode()
+                except Exception:
+                    # 没 pip，用 uv pip 替代
+                    # sys.executable -m pip install X ... → uv pip install --python sys.executable X ...
+                    # 跳过 cmd[0..2]（python -m pip）
+                    rest = cmd[3:]
+                    actual_cmd = ["uv", "pip", "install", "--python", sys.executable] + rest
+
             proc = subprocess.Popen(
-                cmd,
+                actual_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
