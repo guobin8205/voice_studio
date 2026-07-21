@@ -125,7 +125,13 @@ async def download_progress_ws(websocket: WebSocket, name: str):
 
 
 async def _download_model(name: str):
-    """后台下载模型 — 优先 ModelScope，失败回退 HuggingFace"""
+    """后台下载模型 — 优先 ModelScope（国内），失败回退 HuggingFace。
+    下载本身在独立线程中跑，避免阻塞 event loop。"""
+    import asyncio
+    import os
+    from pathlib import Path
+    from concurrent.futures import ThreadPoolExecutor
+
     repos = MODEL_REPOS.get(name, {})
     repo_id = next(iter(repos.values())) if repos else None
     if not repo_id:
@@ -133,58 +139,98 @@ async def _download_model(name: str):
         return
 
     target_dir = f"./models/{name}"
+    os.makedirs(target_dir, exist_ok=True)
 
-    # 方法1: 尝试 ModelScope（国内快）
+    # ModelScope 临时下载在 ._____temp/ 子目录，扫描整个目录树
+    monitor_paths = [Path(target_dir)]
+    ms_cache = Path.home() / ".cache" / "modelscope" / "hub"
+    if ms_cache.exists():
+        monitor_paths.append(ms_cache)
+
+    # 各模型目标大小（bytes）
+    estimated_sizes = {
+        "qwen3tts": 4 * 1024**3,
+        "indextts2": 4 * 1024**3,
+        "voxcpm2": 8 * 1024**3,
+    }
+    target_size = estimated_sizes.get(name, 4 * 1024**3)
+
+    # 启动后台进度监控（asyncio task）
+    stop_monitor = {"flag": False}
+
+    async def monitor_progress():
+        baseline = 0
+        for p in monitor_paths:
+            try:
+                baseline += sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+            except Exception:
+                pass
+
+        while not stop_monitor["flag"]:
+            try:
+                current = 0
+                for p in monitor_paths:
+                    try:
+                        current += sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+                    except Exception:
+                        pass
+                delta = max(current - baseline, 0)
+                pct = min(int(delta * 100 / target_size), 99)
+                old = download_status[name].get("progress", 0)
+                download_status[name]["progress"] = max(old, pct)
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+    monitor_task = asyncio.create_task(monitor_progress())
+
+    # 同步下载函数（在线程池执行）
+    def _do_download():
+        # 方法1: ModelScope
+        try:
+            from modelscope.hub.snapshot_download import snapshot_download as ms_download
+        except ImportError:
+            try:
+                from modelscope import snapshot_download as ms_download
+            except ImportError:
+                ms_download = None
+
+        if ms_download is not None:
+            try:
+                ms_download(repo_id, local_dir=target_dir)
+                return ("ok", None)
+            except Exception as e:
+                last_err = str(e)[:80]
+        else:
+            last_err = "modelscope not installed"
+
+        # 方法2: HuggingFace 回退
+        try:
+            from huggingface_hub import snapshot_download
+            hf_repo = HF_REPOS.get(name, {}).get("1.7B", repo_id)
+            snapshot_download(hf_repo, local_dir=target_dir, resume_download=True)
+            return ("ok", None)
+        except ImportError:
+            return ("error", "请安装 modelscope 或 huggingface_hub")
+        except Exception as e:
+            return ("error", f"modelscope: {last_err}; huggingface: {str(e)[:80]}")
+
     try:
-        from modelscope import snapshot_download
-
-        download_status[name]["status"] = "downloading (modelscope)"
-
-        def progress_hook(pct):
-            download_status[name]["progress"] = min(int(pct * 100), 99)
-
-        snapshot_download(
-            repo_id,
-            local_dir=target_dir,
-            resume_download=True,
-        )
-        download_status[name].update({
-            "downloading": False, "progress": 100,
-            "status": "completed", "error": None,
-        })
-        return
-    except ImportError:
-        pass  # modelscope not installed
-    except Exception as e:
-        # ModelScope 失败，记录日志，尝试 HF
-        download_status[name]["status"] = f"modelscope failed, trying huggingface... ({str(e)[:50]})"
-
-    # 方法2: 回退 HuggingFace
-    try:
-        from huggingface_hub import snapshot_download
-
-        download_status[name]["status"] = "downloading (huggingface)"
-
-        hf_repo = HF_REPOS.get(name, {}).get("1.7B", repo_id)
-        snapshot_download(
-            hf_repo,
-            local_dir=target_dir,
-            resume_download=True,
-        )
-        download_status[name].update({
-            "downloading": False, "progress": 100,
-            "status": "completed", "error": None,
-        })
-    except ImportError:
-        download_status[name].update({
-            "downloading": False, "status": "error",
-            "error": "请安装 modelscope 或 huggingface_hub: pip install modelscope huggingface_hub",
-        })
-    except Exception as e:
-        download_status[name].update({
-            "downloading": False, "status": "error",
-            "error": str(e),
-        })
+        loop = asyncio.get_event_loop()
+        result, err = await loop.run_in_executor(None, _do_download)
+        if result == "ok":
+            download_status[name].update({
+                "downloading": False, "progress": 100,
+                "status": "completed", "error": None,
+            })
+        else:
+            download_status[name].update({
+                "downloading": False, "status": "error",
+                "error": err,
+            })
+    finally:
+        stop_monitor["flag"] = True
+        monitor_task.cancel()
 
 
 def _as_dict(info):
