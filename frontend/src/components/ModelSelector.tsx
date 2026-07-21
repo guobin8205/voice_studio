@@ -97,9 +97,12 @@ export function ModelSelector() {
     <div className="space-y-2">
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">选择模型对比</div>
       {models.map(m => {
-        const activeEntry = selectedModels.find(sm => sm.name === m.name);
-        const isActive = !!activeEntry;
-        const activeSize = activeEntry?.size;
+        // 同模型可能有多个 size 被选中（多选对比）
+        const selectedEntries = selectedModels.filter(sm => sm.name === m.name);
+        const isActive = selectedEntries.length > 0;
+        // 顶部 checkbox：只要还有任意一个 size 选中就显示选中态；
+        // 点击时如果当前选中的是第一个 size，则取消它；否则取消所有
+        const firstSelectedSize = selectedEntries[0]?.size;
 
         return (
           <div key={m.name} className="border-2 border-gray-200 rounded-xl bg-gray-50/50 px-4 py-3 space-y-2">
@@ -107,19 +110,26 @@ export function ModelSelector() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => {
-                  if (isActive) toggleModel(m.name, activeSize!);
-                  else toggleModel(m.name, m.sizes[0]);
+                  if (isActive) {
+                    // 取消该模型的所有 size
+                    selectedEntries.forEach(e => toggleModel(m.name, e.size));
+                  } else {
+                    toggleModel(m.name, m.sizes[0]);
+                  }
                 }}
                 className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-xs transition-colors shrink-0 ${
                   isActive ? 'bg-violet-500 border-violet-500 text-white' : 'border-gray-300 text-transparent hover:border-violet-400'
                 }`}
-                aria-label={isActive ? '取消选择' : '选择此模型'}
+                aria-label={isActive ? '取消所有选择' : '选择此模型'}
               >
                 ✓
               </button>
               <span className={`font-semibold text-[15px] ${isActive ? 'text-gray-900' : 'text-gray-700'}`}>
                 {m.display_name}
               </span>
+              {isActive && selectedEntries.length > 1 && (
+                <span className="text-[10px] text-violet-500 ml-1">已选 {selectedEntries.length} 个规格</span>
+              )}
               <span className="ml-auto text-[10px] text-gray-400">
                 {activeDownload && activeDownload.startsWith(m.name + '_') ? '下载中…' : ''}
               </span>
@@ -130,7 +140,8 @@ export function ModelSelector() {
               {m.sizes.map(size => {
                 const key = `${m.name}_${size}`;
                 const st = sizeStatus[key];
-                const isSelected = isActive && activeSize === size;
+                // 改用 some 判断该 size 是否被选中（支持多选）
+                const isSelected = selectedEntries.some(e => e.size === size);
                 const isDownloaded = st?.status === 'completed';
                 const isDownloading = st?.downloading;
                 const isFailed = st?.status === 'error';
