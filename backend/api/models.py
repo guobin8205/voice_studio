@@ -10,18 +10,24 @@ manager = ModelManager()
 # Model download tracking
 download_status: dict[str, dict] = {}  # {model_name: {progress, status, error}}
 
-# HuggingFace model IDs for download
+# ModelScope model IDs (国内首选)，HuggingFace 作为 fallback
 MODEL_REPOS = {
     "qwen3tts": {
         "1.7B": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         "0.6B": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
     },
     "indextts2": {
-        "1.7B": "IndexTeam/IndexTTS2",  # approximate
+        "1.7B": "iic/IndexTTS2",  # ModelScope mirror
     },
     "voxcpm2": {
-        "1.7B": "openbmb/VoxCPM2",
+        "1.7B": "openbmb/VoxCPM2",  # ModelScope 也有镜像
     },
+}
+
+# HuggingFace fallback IDs (只在与 ModelScope 不同时使用)
+HF_REPOS = {
+    "indextts2": {"1.7B": "IndexTeam/IndexTTS2"},
+    "voxcpm2": {"1.7B": "openbmb/VoxCPM2"},
 }
 
 # Register model adapters
@@ -84,7 +90,7 @@ async def download_status_endpoint(name: str):
 
 @router.post("/{name}/download")
 async def start_download(name: str):
-    """触发模型下载（后台异步）"""
+    """触发模型下载（后台异步），优先使用 ModelScope（国内镜像）"""
     if name not in MODEL_REPOS:
         raise HTTPException(404, f"Unknown model: {name}")
 
@@ -92,17 +98,8 @@ async def start_download(name: str):
     if current.get("downloading"):
         return {"name": name, "message": "Already downloading", "progress": current.get("progress", 0)}
 
-    # Check if already downloaded
-    try:
-        from huggingface_hub import snapshot_download, hf_hub_download
-    except ImportError:
-        raise HTTPException(500, "huggingface_hub not installed. Run: pip install huggingface_hub")
-
     download_status[name] = {"downloading": True, "progress": 0, "status": "downloading", "error": None}
-
-    # Start download in background
     asyncio.create_task(_download_model(name))
-
     return {"name": name, "message": "Download started"}
 
 
@@ -128,47 +125,64 @@ async def download_progress_ws(websocket: WebSocket, name: str):
 
 
 async def _download_model(name: str):
-    """后台下载 HuggingFace 模型"""
+    """后台下载模型 — 优先 ModelScope，失败回退 HuggingFace"""
+    repos = MODEL_REPOS.get(name, {})
+    repo_id = next(iter(repos.values())) if repos else None
+    if not repo_id:
+        download_status[name].update({"downloading": False, "status": "error", "error": f"No repo for {name}"})
+        return
+
+    target_dir = f"./models/{name}"
+
+    # 方法1: 尝试 ModelScope（国内快）
+    try:
+        from modelscope import snapshot_download
+
+        download_status[name]["status"] = "downloading (modelscope)"
+
+        def progress_hook(pct):
+            download_status[name]["progress"] = min(int(pct * 100), 99)
+
+        snapshot_download(
+            repo_id,
+            local_dir=target_dir,
+            resume_download=True,
+        )
+        download_status[name].update({
+            "downloading": False, "progress": 100,
+            "status": "completed", "error": None,
+        })
+        return
+    except ImportError:
+        pass  # modelscope not installed
+    except Exception as e:
+        # ModelScope 失败，记录日志，尝试 HF
+        download_status[name]["status"] = f"modelscope failed, trying huggingface... ({str(e)[:50]})"
+
+    # 方法2: 回退 HuggingFace
     try:
         from huggingface_hub import snapshot_download
 
-        repos = MODEL_REPOS.get(name, {})
-        # Use first available size for download
-        repo_id = next(iter(repos.values())) if repos else None
-        if not repo_id:
-            raise ValueError(f"No repo for model: {name}")
+        download_status[name]["status"] = "downloading (huggingface)"
 
-        # Download with progress
-        def progress_hook(progress: float):
-            download_status[name]["progress"] = min(int(progress * 100), 99)
-
-        # Use snapshot_download for full model
-        download_status[name]["status"] = "downloading"
-
-        # Fallback: try snapshot_download first, then individual files
-        try:
-            snapshot_download(
-                repo_id,
-                local_dir=f"./models/{name}",
-                resume_download=True,
-            )
-        except Exception:
-            # Some repos need individual file download
-            from huggingface_hub import hf_hub_download
-            # Try downloading config.json as indicator
-            hf_hub_download(repo_id, "config.json", local_dir=f"./models/{name}")
-
+        hf_repo = HF_REPOS.get(name, {}).get("1.7B", repo_id)
+        snapshot_download(
+            hf_repo,
+            local_dir=target_dir,
+            resume_download=True,
+        )
         download_status[name].update({
-            "downloading": False,
-            "progress": 100,
-            "status": "completed",
-            "error": None,
+            "downloading": False, "progress": 100,
+            "status": "completed", "error": None,
+        })
+    except ImportError:
+        download_status[name].update({
+            "downloading": False, "status": "error",
+            "error": "请安装 modelscope 或 huggingface_hub: pip install modelscope huggingface_hub",
         })
     except Exception as e:
         download_status[name].update({
-            "downloading": False,
-            "progress": 0,
-            "status": "error",
+            "downloading": False, "status": "error",
             "error": str(e),
         })
 
