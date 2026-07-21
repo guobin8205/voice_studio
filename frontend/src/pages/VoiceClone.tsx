@@ -1,11 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { ModelSelector } from '../components/ModelSelector';
 import { ParamSliders } from '../components/ParamSliders';
 import { OutputCard } from '../components/OutputCard';
 
 export function VoiceClone() {
-  const { fetchModels, text, emotion, setInput, generate, results, selectedModels } = useStore();
+  const { fetchModels, text, emotion, setInput, generate, saveVoice, results, selectedModels } = useStore();
+  const [voiceName, setVoiceName] = useState('');
 
   useEffect(() => { fetchModels(); }, []);
 
@@ -85,6 +86,8 @@ export function VoiceClone() {
               <input
                 className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 focus:outline-none focus:border-violet-500 focus:bg-white transition-colors"
                 placeholder="给这个音色起个名字..."
+                value={voiceName}
+                onChange={e => setVoiceName(e.target.value)}
               />
             </div>
           </div>
@@ -111,6 +114,18 @@ export function VoiceClone() {
             <p className="text-[13px] text-gray-400">
               💡 保存的是原始参考音频 — 所有模型可各自提取嵌入，通用复用。
             </p>
+            {Object.keys(results).length > 0 && (
+              <button
+                onClick={async () => {
+                  const name = voiceName || '未命名克隆';
+                  await saveVoice(name, 'clone');
+                  alert(`克隆音色「${name}」已保存到音色库`);
+                }}
+                className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-semibold text-[15px] transition-colors"
+              >
+                💾 保存当前克隆到音色库
+              </button>
+            )}
           </div>
         </div>
       </div>

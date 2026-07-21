@@ -5,7 +5,7 @@ import { ParamSliders } from '../components/ParamSliders';
 import { OutputCard } from '../components/OutputCard';
 
 export function VoiceDesign() {
-  const { fetchModels, text, prompt, setInput, generate, results, selectedModels } = useStore();
+  const { fetchModels, text, prompt, setInput, generate, saveVoice, results, selectedModels } = useStore();
 
   useEffect(() => { fetchModels(); }, []);
 
@@ -90,6 +90,18 @@ export function VoiceDesign() {
             <p className="text-[13px] text-gray-400">
               💡 保存的是提示词，不是模型输出 — 通用音色，所有模型都能用。
             </p>
+            {Object.keys(results).length > 0 && (
+              <button
+                onClick={async () => {
+                  const name = prompt?.slice(0, 20) || '未命名音色';
+                  await saveVoice(name, 'prompt');
+                  alert(`音色「${name}」已保存到音色库`);
+                }}
+                className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-semibold text-[15px] transition-colors"
+              >
+                💾 保存当前音色到库
+              </button>
+            )}
           </div>
         </div>
       </div>

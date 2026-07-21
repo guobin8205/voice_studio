@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
 from backend.services.voice_store import VoiceStore, VoiceRecord
+from backend.services.export_service import export_voice
 
 router = APIRouter(prefix="/voices", tags=["voices"])
 store = VoiceStore()
@@ -49,6 +51,22 @@ async def delete_voice(voice_id: str):
     if not store.delete(voice_id):
         raise HTTPException(404, "Voice not found")
     return {"deleted": voice_id}
+
+
+@router.get("/{voice_id}/export")
+async def export_voice_endpoint(voice_id: str):
+    """导出音色为 zip 包"""
+    try:
+        zip_data = export_voice(voice_id)
+        record = store.get(voice_id)
+        filename = f"{record.name}_{voice_id}.zip" if record else f"{voice_id}.zip"
+        return Response(
+            content=zip_data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
 
 
 def _to_dict(r: VoiceRecord) -> dict:

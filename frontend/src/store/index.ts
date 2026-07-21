@@ -23,6 +23,7 @@ interface AppState {
   fetchModels: () => Promise<void>;
   fetchSystemStatus: () => Promise<void>;
   generate: () => Promise<void>;
+  saveVoice: (name: string, type: 'prompt' | 'clone', referenceAudio?: string) => Promise<void>;
   setInput: (key: string, value: string | number) => void;
   toggleModel: (name: string, size: string) => void;
 }
@@ -71,6 +72,22 @@ export const useStore = create<AppState>((set, get) => ({
       results[`${m.name}_${m.size}`] = resp;
     }
     set({ results });
+  },
+
+  saveVoice: async (name, type, referenceAudio) => {
+    const state = get();
+    await api.createVoice({
+      name,
+      type,
+      prompt: type === 'prompt' ? state.prompt : undefined,
+      reference_audio: referenceAudio,
+      params: {
+        speed: state.speed,
+        pitch: state.pitch,
+        temperature: state.temperature,
+        top_p: state.top_p,
+      },
+    });
   },
 
   setInput: (key, value) => set({ [key]: value } as any),
