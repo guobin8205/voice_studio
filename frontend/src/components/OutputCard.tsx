@@ -1,4 +1,5 @@
 import type { GenerateResponse } from '../types';
+import { AudioPlayer } from './AudioPlayer';
 
 interface Props {
   modelName: string;
@@ -14,24 +15,11 @@ export function OutputCard({ modelName, size, result, paramNote }: Props) {
         <span className="font-bold text-gray-900">{modelName}</span>
         <span className="text-xs text-gray-400">{size}{paramNote && ` · ${paramNote}`}</span>
       </div>
-      <div className="h-10 bg-white border border-gray-100 rounded-lg flex items-center px-3.5 mb-3">
-        {result ? (
-          <div className="flex items-end gap-0.5 h-7 w-full">
-            {Array.from({ length: 20 }).map((_, i) => (
-              <div
-                key={i}
-                className="flex-1 rounded-sm bg-gray-800"
-                style={{ height: `${20 + Math.sin(i * 0.8) * 15 + Math.random() * 25}%`, minHeight: 3 }}
-              />
-            ))}
-          </div>
-        ) : (
-          <span className="text-xs text-gray-300">等待生成...</span>
-        )}
-      </div>
+      <AudioPlayer audioPath={result?.audio_path} className="mb-3" />
       <div className="flex gap-4 text-[13px]">
-        <span className="text-gray-500 cursor-pointer hover:text-gray-900 font-medium">▶ 播放</span>
-        <span className="text-gray-500 cursor-pointer hover:text-gray-900 font-medium">💾 保存</span>
+        <span className="text-gray-500 cursor-pointer hover:text-gray-900 font-medium">
+          {result ? '💾 保存到库' : '等待生成...'}
+        </span>
       </div>
     </div>
   );

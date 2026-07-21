@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { api } from '../api/client';
 import type { VoiceRecord } from '../types';
 import { OutputCard } from '../components/OutputCard';
+import { LanguageDialectSelect } from '../components/LanguageDialectSelect';
 
 const defaultOverride = { speed: 1.0, pitch: 0, temperature: 0.4, top_p: 0.9 };
 
@@ -11,7 +12,7 @@ export function DebugConsole() {
     fetchModels, models, selectedModels, toggleModel,
     text, prompt, emotion, speed, pitch, temperature, top_p,
     setInput, generate, results, loadedVoice, loadVoice,
-    modelOverrides, setModelOverride,
+    modelOverrides, setModelOverride, generating, generateProgress,
   } = useStore();
 
   const [voices, setVoices] = useState<VoiceRecord[]>([]);
@@ -76,24 +77,16 @@ export function DebugConsole() {
               )}
             </div>
 
-            <div className="flex gap-4">
-              <div className="flex-1 space-y-1">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">语言</label>
-                <div className="border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 select-none">中文 ▾</div>
-              </div>
-              <div className="flex-1 space-y-1">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">方言</label>
-                <div className="border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 select-none">普通话 ▾</div>
-              </div>
-              <div className="flex-[2] space-y-1">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">情感</label>
-                <input
-                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 focus:outline-none focus:border-amber-500 transition-colors"
-                  placeholder="留空则中性..."
-                  value={emotion}
-                  onChange={e => setInput('emotion', e.target.value)}
-                />
-              </div>
+            <LanguageDialectSelect />
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">情感</label>
+              <input
+                className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 focus:outline-none focus:border-amber-500 transition-colors"
+                placeholder="留空则中性..."
+                value={emotion}
+                onChange={e => setInput('emotion', e.target.value)}
+              />
             </div>
 
             <div className="space-y-1">
@@ -221,10 +214,10 @@ export function DebugConsole() {
 
             <button
               onClick={generate}
-              disabled={selectedModels.length === 0 || !text}
+              disabled={selectedModels.length === 0 || !text || generating}
               className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 text-white font-semibold text-[15px] transition-colors"
             >
-              🚀 生成对比（{selectedModels.length} 个模型）
+              {generating ? `⏳ ${generateProgress}` : `🚀 生成对比（${selectedModels.length} 个模型）`}
             </button>
 
             <div className="space-y-1">

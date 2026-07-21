@@ -3,9 +3,10 @@ import { useStore } from '../store';
 import { ModelSelector } from '../components/ModelSelector';
 import { ParamSliders } from '../components/ParamSliders';
 import { OutputCard } from '../components/OutputCard';
+import { LanguageDialectSelect } from '../components/LanguageDialectSelect';
 
 export function VoiceDesign() {
-  const { fetchModels, text, prompt, setInput, generate, saveVoice, results, selectedModels } = useStore();
+  const { fetchModels, text, prompt, setInput, generate, saveVoice, results, selectedModels, generating, generateProgress } = useStore();
 
   useEffect(() => { fetchModels(); }, []);
 
@@ -22,20 +23,7 @@ export function VoiceDesign() {
         <div className="flex gap-8">
           {/* Left */}
           <div className="flex-1 space-y-5">
-            <div className="flex gap-4">
-              <div className="flex-1 space-y-1">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">语言</label>
-                <div className="border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 select-none">
-                  中文 ▾
-                </div>
-              </div>
-              <div className="flex-1 space-y-1">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">方言</label>
-                <div className="border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 select-none">
-                  普通话 ▾
-                </div>
-              </div>
-            </div>
+            <LanguageDialectSelect />
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -69,10 +57,10 @@ export function VoiceDesign() {
             <ModelSelector />
             <button
               onClick={generate}
-              disabled={selectedModels.length === 0 || !text}
+              disabled={selectedModels.length === 0 || !text || generating}
               className="w-full py-3.5 rounded-xl bg-violet-500 hover:bg-violet-600 disabled:bg-gray-200 text-white font-semibold text-[15px] transition-colors"
             >
-              🎤 生成对比（{selectedModels.length} 个模型）
+              {generating ? `⏳ ${generateProgress}` : `🎤 生成对比（${selectedModels.length} 个模型）`}
             </button>
 
             <div className="space-y-1">

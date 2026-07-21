@@ -30,6 +30,8 @@ interface AppState {
   // Phase 3: debug console
   loadedVoice: VoiceRecord | null;
   modelOverrides: Record<string, ModelOverride>;
+  generating: boolean;
+  generateProgress: string;
 
   fetchModels: () => Promise<void>;
   fetchSystemStatus: () => Promise<void>;
@@ -60,6 +62,8 @@ export const useStore = create<AppState>((set, get) => ({
   results: {},
   loadedVoice: null,
   modelOverrides: {},
+  generating: false,
+  generateProgress: '',
 
   fetchModels: async () => {
     const models = await api.getModels();
@@ -76,20 +80,28 @@ export const useStore = create<AppState>((set, get) => ({
 
   generate: async () => {
     const state = get();
+    set({ generating: true, generateProgress: '', results: {} });
     const results: Record<string, GenerateResponse> = {};
-    for (const m of state.selectedModels) {
-      const ov = state.modelOverrides[m.name] || defaultOverride();
-      const resp = await api.generate({
-        model: m.name, size: m.size,
-        text: state.text, language: state.language,
-        dialect: state.dialect, prompt: state.prompt,
-        emotion: state.emotion,
-        speed: ov.speed, pitch: ov.pitch,
-        temperature: ov.temperature, top_p: ov.top_p,
-      });
-      results[`${m.name}_${m.size}`] = resp;
+
+    try {
+      for (let i = 0; i < state.selectedModels.length; i++) {
+        const m = state.selectedModels[i];
+        set({ generateProgress: `正在生成 ${m.name} (${i + 1}/${state.selectedModels.length})...` });
+        const ov = state.modelOverrides[m.name] || defaultOverride();
+        const resp = await api.generate({
+          model: m.name, size: m.size,
+          text: state.text, language: state.language,
+          dialect: state.dialect, prompt: state.prompt,
+          emotion: state.emotion,
+          speed: ov.speed, pitch: ov.pitch,
+          temperature: ov.temperature, top_p: ov.top_p,
+        });
+        results[`${m.name}_${m.size}`] = resp;
+      }
+      set({ results, generateProgress: '生成完成' });
+    } finally {
+      set({ generating: false });
     }
-    set({ results });
   },
 
   saveVoice: async (name, type, referenceAudio) => {
