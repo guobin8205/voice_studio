@@ -135,9 +135,15 @@ async def download_status_endpoint(name: str, size: str = ""):
 
 @router.post("/{name}/download")
 async def start_download(name: str, size: str = ""):
-    """触发模型下载（后台异步）。size 为空则下载所有规格。"""
+    """触发模型下载（后台异步）。size 为空则下载所有规格。
+    同时只允许一个下载任务，避免重复点击。"""
     if name not in MODEL_REPOS:
         raise HTTPException(404, f"Unknown model: {name}")
+
+    # 检查是否已有任务在跑
+    for k, v in download_status.items():
+        if v.get("downloading"):
+            raise HTTPException(409, f"已有下载任务在运行: {k}。请等待完成或失败后再启动新的。")
 
     sizes_to_download = [size] if size else list(MODEL_REPOS[name].keys())
 

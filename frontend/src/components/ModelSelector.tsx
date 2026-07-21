@@ -48,6 +48,12 @@ export function ModelSelector() {
 
   const startDownload = (name: string, size: string) => {
     const key = `${name}_${size}`;
+    // 防重复：如果正在下载（全局任意一个），直接返回
+    if (activeDownload !== null) return;
+    // 如果这个 size 已下载或正在下载，也跳过
+    const current = sizeStatus[key];
+    if (current?.downloading || current?.status === 'completed') return;
+
     setActiveDownload(key);
     setSizeStatus(prev => ({ ...prev, [key]: { downloading: true, progress: 0, status: 'downloading' } }));
     api.startDownload(name, size).then(() => {
@@ -65,7 +71,10 @@ export function ModelSelector() {
           }
         } catch {}
       };
-      ws.onerror = () => { setActiveDownload(null); };
+      ws.onerror = () => {
+        // 状态会通过 GET 拉取同步；这里只清 activeDownload
+        setActiveDownload(null);
+      };
     }).catch(() => { setActiveDownload(null); });
   };
 
@@ -123,13 +132,17 @@ export function ModelSelector() {
                       {failed && <span className="ml-1 text-red-400">⚠</span>}
                     </span>
 
-                    {/* 下载按钮：只在未下载且未下载中时显示 */}
+                    {/* 下载按钮：只在未下载且未下载中时显示；下载中禁用所有下载按钮 */}
                     {!downloaded && !downloading && (
                       <button
                         onClick={(e) => { e.stopPropagation(); startDownload(m.name, size); }}
                         disabled={activeDownload !== null}
-                        className="text-xs text-violet-500 hover:text-violet-700 disabled:text-gray-300 px-1"
-                        title={failed ? `失败: ${st?.error || ''}` : '下载此规格'}
+                        className={`px-1 transition-opacity ${
+                          activeDownload !== null
+                            ? 'text-gray-300 cursor-not-allowed opacity-50'
+                            : 'text-violet-500 hover:text-violet-700'
+                        }`}
+                        title={activeDownload !== null ? '正在下载其他模型，请稍候' : failed ? `失败: ${st?.error || ''}` : '下载此规格'}
                       >
                         📥
                       </button>
