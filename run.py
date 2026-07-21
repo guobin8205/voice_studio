@@ -200,8 +200,23 @@ def install_all():
 
 # ─── Start / Stop ────────────────────────────────────────────
 
+def build_frontend():
+    """Build frontend for production (single-process mode)."""
+    step("构建前端...")
+    dist = FRONTEND / "dist"
+    if not (FRONTEND / "node_modules").exists():
+        install_frontend()
+    result = run("npx vite build", cwd=FRONTEND)
+    result.wait()
+    if result.returncode == 0 and dist.exists():
+        ok("前端构建完成")
+        return True
+    fail("前端构建失败")
+    return False
+
+
 def start():
-    """Start backend + frontend."""
+    """Start single-process server (FastAPI serves both API and built frontend)."""
     if not check_environment():
         return
 
@@ -211,42 +226,39 @@ def start():
         install_backend()
         install_frontend()
 
-    print(bold("\n🚀 启动 TTS Studio...\n"))
+    # Build frontend if dist missing or stale
+    dist = FRONTEND / "dist"
+    src_index = FRONTEND / "src" / "main.tsx"
+    needs_build = (
+        not dist.exists()
+        or (src_index.exists() and src_index.stat().st_mtime > (dist / "index.html").stat().st_mtime if (dist / "index.html").exists() else True)
+    )
+    if needs_build:
+        if not build_frontend():
+            print(red("\n前端构建失败，无法启动。"))
+            return
 
-    # Kill any existing processes on ports
+    print(bold("\n🚀 启动 TTS Studio (单进程模式)...\n"))
+
+    # Kill any existing process on 8765
     _kill_port(8765)
-    _kill_port(3000)
 
-    # Clear Vite cache to avoid stale CSS issues
-    vite_cache = FRONTEND / "node_modules" / ".vite"
-    if vite_cache.exists():
-        shutil.rmtree(vite_cache)
-        print(f"  {dim('清理 Vite 缓存...')}")
-
+    # Single process: FastAPI serves API + built frontend
     backend_proc = run(
         f'"{sys.executable}" -m backend.main',
         cwd=ROOT,
     )
-    print(f"  {green('◉')} 后端启动中... http://localhost:8765  (PID: {backend_proc.pid})")
-
-    time.sleep(2)
-
-    frontend_proc = run(
-        "npx vite --host",
-        cwd=FRONTEND,
-    )
-
-    # Save PIDs
-    PID_FILE.write_text(f"{backend_proc.pid}\n{frontend_proc.pid}")
-    print(f"  {green('◉')} 前端启动中... http://localhost:3000  (PID: {frontend_proc.pid})")
+    PID_FILE.write_text(f"{backend_proc.pid}")
 
     time.sleep(3)
+    print(f"  {green('◉')} 服务已启动！http://localhost:{8765}  (PID: {backend_proc.pid})")
     print(f"\n  {bold('TTS Studio 已启动！')}")
-    print(f"  📱 打开浏览器: {bold('http://localhost:3000')}")
-    print(f"  📖 API 文档:   {bold('http://localhost:8765/docs')}")
-    print(f"\n  {dim('按 Ctrl+C 停止服务')}\n")
+    print(f"  📱 应用:    {bold(f'http://localhost:{8765}')}")
+    print(f"  📖 API 文档: {bold(f'http://localhost:{8765}/docs')}")
+    print(f"\n  {dim('修改前端代码后，运行 `python run.py build` 重新构建')}")
+    print(f"  {dim('按 Ctrl+C 停止服务')}\n")
 
-    webbrowser.open("http://localhost:3000")
+    webbrowser.open(f"http://localhost:{8765}")
 
     try:
         backend_proc.wait()
@@ -279,19 +291,12 @@ def status():
     import urllib.request
     print(bold("\n📊 服务状态\n"))
 
-    # Check backend
+    # Check backend (single process serves both API and frontend)
     try:
-        urllib.request.urlopen("http://localhost:8765/api/models", timeout=2)
-        print(f"  {green('◉')} 后端: 运行中  http://localhost:8765")
+        urllib.request.urlopen(f"http://localhost:{8765}/api/models", timeout=2)
+        print(f"  {green('◉')} 服务运行中  http://localhost:{8765}")
     except Exception:
-        print(f"  {red('◌')} 后端: 未运行")
-
-    # Check frontend
-    try:
-        urllib.request.urlopen("http://localhost:3000", timeout=2)
-        print(f"  {green('◉')} 前端: 运行中  http://localhost:3000")
-    except Exception:
-        print(f"  {red('◌')} 前端: 未运行")
+        print(f"  {red('◌')} 服务未运行")
 
     # GPU
     try:
@@ -341,8 +346,9 @@ def show_help():
     print("用法:")
     print("  python run.py             自动检测 → 安装(如需) → 启动")
     print("  python run.py install     仅安装依赖")
-    print("  python run.py start       启动后端 + 前端")
-    print("  python run.py stop        停止所有服务")
+    print("  python run.py start       启动服务（单进程）")
+    print("  python run.py build       重新构建前端")
+    print("  python run.py stop        停止服务")
     print("  python run.py status      查看服务状态")
     print("  python run.py check       检查运行环境")
     print("  python run.py clean       清理缓存")
@@ -359,6 +365,7 @@ def main():
         "status": status,
         "check": check_environment,
         "clean": clean,
+        "build": build_frontend,
         "help": show_help,
         "-h": show_help,
         "--help": show_help,
