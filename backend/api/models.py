@@ -18,8 +18,11 @@ download_status: dict[str, dict] = {}
 MODEL_PACKAGES = {
     "qwen3tts": "qwen-tts",
     "voxcpm2": "voxcpm",
-    # IndexTTS2: 用 pip 包 IndexTTS2（PyPI 上有）
+    # IndexTTS2 没有 PyPI 包，但官方推荐用 modelscope download（包含源码 + 权重）
 }
+
+# IndexTTS2 ModelScope 仓库 ID
+INDEXTTS2_MODELSCOPE_REPO = "IndexTeam/IndexTTS-2"
 
 # 每个模型的真实规格（替代之前错误的 1.7B/0.6B）
 MODEL_REAL_SIZES = {
@@ -317,10 +320,10 @@ async def _download_model(name: str, size: str = ""):
             proc.wait()
             return proc.returncode, last_line
 
-        # 阶段 1: pip 安装推理包（用清华镜像加速国内下载）
-        # IndexTTS2 现在也通过 pip 安装（PyPI: IndexTTS2）
-        indextts_pkg = "IndexTTS2" if name == "indextts2" else None
-        pkg = MODEL_PACKAGES.get(name) or indextts_pkg
+        # 阶段 1: 安装推理包
+        # - Qwen3-TTS / VoxCPM2: 从 PyPI 装（清华源）
+        # - IndexTTS2: 没有官方 PyPI 包，先从 ModelScope 下源码 + pip install .
+        pkg = MODEL_PACKAGES.get(name)
         if pkg:
             try:
                 rc, last = _run_with_progress(
@@ -337,6 +340,51 @@ async def _download_model(name: str, size: str = ""):
                     return ("error", f"pip install {pkg} 失败（exit {rc}）: {last[-200:]}")
             except Exception as e:
                 return ("error", f"pip install {pkg} 异常: {e}")
+
+        # IndexTTS2 特殊处理：从 ModelScope 拉 source，然后 pip install .
+        if name == "indextts2":
+            import os as _os
+            import shutil as _shutil
+            src_dir = "./third_party/IndexTTS2"
+            try:
+                # 已装就跳过
+                import importlib
+                importlib.import_module("indextts")
+            except ImportError:
+                download_status[key].update({
+                    "phase": "installing_package",
+                    "status": "从 ModelScope 下载 IndexTTS2 源码...",
+                    "progress": 0,
+                })
+                # 用 modelscope snapshot_download 拉源码（含 pyproject.toml 等）
+                try:
+                    from modelscope.hub.snapshot_download import snapshot_download as _ms
+                except ImportError:
+                    try:
+                        from modelscope import snapshot_download as _ms
+                    except ImportError:
+                        return ("error", "modelscope 未安装，无法下载 IndexTTS2 源码")
+
+                try:
+                    _ms(INDEXTTS2_MODELSCOPE_REPO, local_dir=src_dir)
+                except Exception as e:
+                    return ("error", f"从 ModelScope 下载 IndexTTS2 源码失败: {str(e)[:200]}")
+
+                # pip install .
+                if _os.path.exists(_os.path.join(src_dir, "pyproject.toml")) or \
+                   _os.path.exists(_os.path.join(src_dir, "setup.py")):
+                    rc, last = _run_with_progress(
+                        [
+                            sys.executable, "-m", "pip", "install", src_dir,
+                            "-i", PIP_INDEX_URL,
+                            "--trusted-host", PIP_TRUSTED_HOST,
+                        ],
+                        label="pip install IndexTTS2 (from source)",
+                    )
+                    if rc != 0:
+                        return ("error", f"pip install IndexTTS2 失败（exit {rc}）: {last[-200:]}")
+                else:
+                    return ("error", f"IndexTTS2 源码不完整（无 pyproject.toml/setup.py）: {src_dir}")
 
         # 重置进度准备下载权重
         download_status[key].update({
