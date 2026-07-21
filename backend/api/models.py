@@ -343,26 +343,34 @@ async def _download_model(name: str, size: str = ""):
             proc.wait()
             return proc.returncode, last_line
 
-        # 阶段 1: 安装推理包
-        # - Qwen3-TTS / VoxCPM2: 从 PyPI 装（清华源）
-        # - IndexTTS2: 没有官方 PyPI 包，先从 ModelScope 下源码 + pip install .
+        # 阶段 1: 安装推理包（已装则跳过）
         pkg = MODEL_PACKAGES.get(name)
         if pkg:
+            import importlib
+            mod_name = pkg.replace("-", "_")
             try:
-                rc, last = _run_with_progress(
-                    [
-                        sys.executable, "-m", "pip", "install", pkg,
-                        "-i", PIP_INDEX_URL,
-                        "--trusted-host", PIP_TRUSTED_HOST,
-                        "--progress-bar=on",
-                    ],
-                    label=f"pip install {pkg}",
-                    phase_msg_template="{line}",
-                )
-                if rc != 0:
-                    return ("error", f"pip install {pkg} 失败（exit {rc}）: {last[-200:]}")
-            except Exception as e:
-                return ("error", f"pip install {pkg} 异常: {e}")
+                importlib.import_module(mod_name)
+                download_status[key].update({
+                    "phase": "installing_package",
+                    "status": f"{pkg} 已安装，跳过",
+                    "progress": 95,
+                })
+            except ImportError:
+                try:
+                    rc, last = _run_with_progress(
+                        [
+                            sys.executable, "-m", "pip", "install", pkg,
+                            "-i", PIP_INDEX_URL,
+                            "--trusted-host", PIP_TRUSTED_HOST,
+                            "--progress-bar=on",
+                        ],
+                        label=f"pip install {pkg}",
+                        phase_msg_template="{line}",
+                    )
+                    if rc != 0:
+                        return ("error", f"pip install {pkg} 失败（exit {rc}）: {last[-200:]}")
+                except Exception as e:
+                    return ("error", f"pip install {pkg} 异常: {e}")
 
         # 重置进度准备下载权重
         download_status[key].update({
