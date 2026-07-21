@@ -18,35 +18,31 @@ download_status: dict[str, dict] = {}
 MODEL_PACKAGES = {
     "qwen3tts": "qwen-tts",
     "voxcpm2": "voxcpm",
-    # indextts2 不在 PyPI，需要 git clone，单独处理
+    # IndexTTS2: 用 pip 包 IndexTTS2（PyPI 上有）
 }
 
 # 每个模型的真实规格（替代之前错误的 1.7B/0.6B）
 MODEL_REAL_SIZES = {
     "qwen3tts": ["1.7B", "0.6B"],
-    "indextts2": ["standard"],   # IndexTTS2 只有一种规格
-    "voxcpm2": ["2B"],           # VoxCPM2 是 2B 参数
+    "indextts2": ["standard"],
+    "voxcpm2": ["2B"],
 }
 
-# pip 国内镜像（清华源，加速国内下载）
+# pip 国内镜像（清华源）
 PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_TRUSTED_HOST = "pypi.tuna.tsinghua.edu.cn"
 
-# IndexTTS2 国内镜像（gitee）
-INDEXTTS2_GITEE_URL = "https://gitee.com/mirrors/index-tts.git"
-INDEXTTS2_GITHUB_URL = "https://github.com/index-tts/index-tts.git"
-
-# ModelScope model IDs (国内首选)，HuggingFace 作为 fallback
+# ModelScope model IDs（国内首选），HuggingFace 作为 fallback
 MODEL_REPOS = {
     "qwen3tts": {
         "1.7B": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         "0.6B": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
     },
     "indextts2": {
-        "1.7B": "iic/IndexTTS2",  # ModelScope mirror
+        "standard": "IndexTeam/IndexTTS-2",  # ModelScope 上的官方仓库
     },
     "voxcpm2": {
-        "1.7B": "openbmb/VoxCPM2",  # ModelScope 也有镜像
+        "2B": "openbmb/VoxCPM2",
     },
 }
 
@@ -248,7 +244,9 @@ async def _download_model(name: str):
             return proc.returncode, last_line
 
         # 阶段 1: pip 安装推理包（用清华镜像加速国内下载）
-        pkg = MODEL_PACKAGES.get(name)
+        # IndexTTS2 现在也通过 pip 安装（PyPI: IndexTTS2）
+        indextts_pkg = "IndexTTS2" if name == "indextts2" else None
+        pkg = MODEL_PACKAGES.get(name) or indextts_pkg
         if pkg:
             try:
                 rc, last = _run_with_progress(
@@ -265,45 +263,6 @@ async def _download_model(name: str):
                     return ("error", f"pip install {pkg} 失败（exit {rc}）: {last[-200:]}")
             except Exception as e:
                 return ("error", f"pip install {pkg} 异常: {e}")
-
-        # indextts2 特殊处理：git clone（优先 Gitee 镜像）+ pip install
-        if name == "indextts2":
-            try:
-                import importlib
-                importlib.import_module("indextts")
-            except ImportError:
-                target_src = "./third_party/IndexTTS2"
-                if not os.path.exists(target_src):
-                    os.makedirs("./third_party", exist_ok=True)
-                    download_status[name].update({
-                        "phase": "installing_package",
-                        "status": "git clone IndexTTS2 (gitee 镜像)...",
-                        "progress": 0,
-                    })
-                    # 先试 Gitee，失败再试 GitHub
-                    for git_url in [INDEXTTS2_GITEE_URL, INDEXTTS2_GITHUB_URL]:
-                        rc, last = _run_with_progress(
-                            ["git", "clone", "--depth", "1", git_url, target_src],
-                            label=f"git clone ({git_url.split('/')[2]})",
-                        )
-                        if rc == 0:
-                            break
-                        # 清理失败的目录
-                        if os.path.exists(target_src):
-                            import shutil
-                            shutil.rmtree(target_src, ignore_errors=True)
-                    else:
-                        return ("error", f"git clone IndexTTS2 失败（Gitee 和 GitHub 都试过）: {last[-200:]}")
-                rc, last = _run_with_progress(
-                    [
-                        sys.executable, "-m", "pip", "install", "-e", target_src,
-                        "-i", PIP_INDEX_URL,
-                        "--trusted-host", PIP_TRUSTED_HOST,
-                    ],
-                    label="pip install IndexTTS2 (editable)",
-                )
-                if rc != 0:
-                    return ("error", f"pip install IndexTTS2 失败（exit {rc}）: {last[-200:]}")
 
         # 重置进度准备下载权重
         download_status[name].update({
