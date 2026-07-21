@@ -14,6 +14,12 @@ MODEL_IDS = {
     "0.6B": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
 }
 
+# 下载到本地的目录映射（与 _download_model 中 target_dir 一致）
+LOCAL_PATHS = {
+    "1.7B": "./models/qwen3tts/1.7B",
+    "0.6B": "./models/qwen3tts/0.6B",
+}
+
 
 class Qwen3TTSAdapter(ModelInterface):
     def __init__(self):
@@ -46,9 +52,13 @@ class Qwen3TTSAdapter(ModelInterface):
                 "qwen-tts package not installed. Run: pip install qwen-tts"
             )
 
-        model_id = MODEL_IDS[size]
+        # 优先用本地下载的权重，否则从 HF 拉
+        import os
+        local_path = LOCAL_PATHS.get(size)
+        model_source = local_path if local_path and os.path.exists(local_path) else MODEL_IDS[size]
+
         self._model = Qwen3TTSModel.from_pretrained(
-            model_id,
+            model_source,
             device_map="cuda:0",
             dtype=torch.bfloat16,
         )

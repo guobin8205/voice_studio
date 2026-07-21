@@ -98,73 +98,126 @@ async def unload_model(name: str):
 
 
 @router.get("/{name}/download-status")
-async def download_status_endpoint(name: str):
-    """查询模型下载状态"""
-    status = download_status.get(name, {})
-    return {
-        "name": name,
-        "downloading": status.get("downloading", False),
-        "progress": status.get("progress", 0),
-        "status": status.get("status", "not_started"),  # not_started | downloading | completed | error
-        "phase": status.get("phase", "idle"),  # idle | installing_package | downloading_weights
-        "phase_message": status.get("status", ""),  # 详细状态文本
-        "error": status.get("error"),
-    }
+async def download_status_endpoint(name: str, size: str = ""):
+    """查询模型下载状态。传 size 时返回该规格状态，否则返回所有规格。"""
+    if size:
+        key = f"{name}_{size}"
+        status = download_status.get(key, {})
+        return {
+            "name": name, "size": size,
+            "downloading": status.get("downloading", False),
+            "progress": status.get("progress", 0),
+            "status": status.get("status", "not_started"),
+            "phase": status.get("phase", "idle"),
+            "phase_message": status.get("status", ""),
+            "error": status.get("error"),
+        }
+    # 返回该模型所有规格的状态
+    sizes = MODEL_REPOS.get(name, {})
+    result = {}
+    for sz in sizes:
+        key = f"{name}_{sz}"
+        status = download_status.get(key, {})
+        result[sz] = {
+            "downloading": status.get("downloading", False),
+            "progress": status.get("progress", 0),
+            "status": status.get("status", "not_started"),
+            "phase": status.get("phase", "idle"),
+            "phase_message": status.get("status", ""),
+            "error": status.get("error"),
+        }
+    return {"name": name, "sizes": result}
 
 
 @router.post("/{name}/download")
-async def start_download(name: str):
-    """触发模型下载（后台异步），优先使用 ModelScope（国内镜像）"""
+async def start_download(name: str, size: str = ""):
+    """触发模型下载（后台异步）。size 为空则下载所有规格。"""
     if name not in MODEL_REPOS:
         raise HTTPException(404, f"Unknown model: {name}")
 
-    current = download_status.get(name, {})
-    if current.get("downloading"):
-        return {"name": name, "message": "Already downloading", "progress": current.get("progress", 0)}
+    sizes_to_download = [size] if size else list(MODEL_REPOS[name].keys())
 
-    download_status[name] = {"downloading": True, "progress": 0, "status": "downloading", "error": None}
-    asyncio.create_task(_download_model(name))
-    return {"name": name, "message": "Download started"}
+    started = []
+    for sz in sizes_to_download:
+        key = f"{name}_{sz}"
+        current = download_status.get(key, {})
+        if current.get("downloading") or current.get("status") == "completed":
+            continue
+        download_status[key] = {
+            "downloading": True, "progress": 0, "status": "downloading",
+            "error": None, "model": name, "size": sz,
+        }
+        asyncio.create_task(_download_model(name, sz))
+        started.append(sz)
+
+    return {"name": name, "sizes_started": started, "message": f"Started: {started}"}
 
 
 @router.websocket("/{name}/download-progress")
-async def download_progress_ws(websocket: WebSocket, name: str):
-    """WebSocket 推送下载进度"""
+async def download_progress_ws(websocket: WebSocket, name: str, size: str = ""):
+    """WebSocket 推送下载进度（按 size 区分）"""
     await websocket.accept()
     try:
         while True:
-            status = download_status.get(name, {})
-            await websocket.send_json({
-                "name": name,
-                "downloading": status.get("downloading", False),
-                "progress": status.get("progress", 0),
-                "status": status.get("status", "not_started"),
-                "phase": status.get("phase", "idle"),
-                "phase_message": status.get("status", ""),
-                "error": status.get("error"),
-            })
-            if status.get("status") in ("completed", "error"):
-                break
+            if size:
+                key = f"{name}_{size}"
+                status = download_status.get(key, {})
+                await websocket.send_json({
+                    "name": name, "size": size,
+                    "downloading": status.get("downloading", False),
+                    "progress": status.get("progress", 0),
+                    "status": status.get("status", "not_started"),
+                    "phase": status.get("phase", "idle"),
+                    "phase_message": status.get("status", ""),
+                    "error": status.get("error"),
+                })
+                if status.get("status") in ("completed", "error"):
+                    break
+            else:
+                # 推送该模型所有规格
+                sizes = MODEL_REPOS.get(name, {})
+                payload = {"name": name, "sizes": {}}
+                any_active = False
+                for sz in sizes:
+                    key = f"{name}_{sz}"
+                    s = download_status.get(key, {})
+                    payload["sizes"][sz] = {
+                        "downloading": s.get("downloading", False),
+                        "progress": s.get("progress", 0),
+                        "status": s.get("status", "not_started"),
+                        "phase": s.get("phase", "idle"),
+                        "phase_message": s.get("status", ""),
+                        "error": s.get("error"),
+                    }
+                    if s.get("downloading"):
+                        any_active = True
+                await websocket.send_json(payload)
+                if not any_active:
+                    break
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         pass
 
 
-async def _download_model(name: str):
+async def _download_model(name: str, size: str = ""):
     """后台下载模型 — 优先 ModelScope（国内），失败回退 HuggingFace。
-    下载本身在独立线程中跑，避免阻塞 event loop。"""
+    size 指定要下载的规格；下载本身在独立线程中跑。"""
     import asyncio
     import os
     from pathlib import Path
-    from concurrent.futures import ThreadPoolExecutor
 
+    key = f"{name}_{size}" if size else name
     repos = MODEL_REPOS.get(name, {})
-    repo_id = next(iter(repos.values())) if repos else None
+    if size and size in repos:
+        repo_id = repos[size]
+    else:
+        repo_id = next(iter(repos.values())) if repos else None
     if not repo_id:
-        download_status[name].update({"downloading": False, "status": "error", "error": f"No repo for {name}"})
+        download_status[key].update({"downloading": False, "status": "error", "error": f"No repo for {name}/{size}"})
         return
 
-    target_dir = f"./models/{name}"
+    # 每个规格一个独立目录
+    target_dir = f"./models/{name}/{size}" if size else f"./models/{name}"
     os.makedirs(target_dir, exist_ok=True)
 
     # ModelScope 临时下载在 ._____temp/ 子目录，扫描整个目录树
@@ -202,8 +255,8 @@ async def _download_model(name: str):
                         pass
                 delta = max(current - baseline, 0)
                 pct = min(int(delta * 100 / target_size), 99)
-                old = download_status[name].get("progress", 0)
-                download_status[name]["progress"] = max(old, pct)
+                old = download_status[key].get("progress", 0)
+                download_status[key]["progress"] = max(old, pct)
             except Exception:
                 pass
             await asyncio.sleep(2)
@@ -218,7 +271,7 @@ async def _download_model(name: str):
         def _run_with_progress(cmd: list, label: str, phase_msg_template: str = "{label}: {line}"):
             """运行命令，实时把 stdout/stderr 推送到 download_status。
             返回 (returncode, last_output_line)。"""
-            download_status[name].update({"phase": "installing_package", "progress": 0})
+            download_status[key].update({"phase": "installing_package", "progress": 0})
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -236,7 +289,7 @@ async def _download_model(name: str):
                     continue
                 lines_seen += 1
                 last_line = line
-                download_status[name].update({
+                download_status[key].update({
                     "status": phase_msg_template.format(label=label, line=line[-100:]),
                     "progress": min(lines_seen * 3, 95),
                 })
@@ -265,7 +318,7 @@ async def _download_model(name: str):
                 return ("error", f"pip install {pkg} 异常: {e}")
 
         # 重置进度准备下载权重
-        download_status[name].update({
+        download_status[key].update({
             "phase": "downloading_weights",
             "progress": 0,
             "status": "正在下载权重文件...",
@@ -304,12 +357,12 @@ async def _download_model(name: str):
         loop = asyncio.get_running_loop()
         result, err = await loop.run_in_executor(_download_executor, _do_download)
         if result == "ok":
-            download_status[name].update({
+            download_status[key].update({
                 "downloading": False, "progress": 100,
                 "status": "completed", "error": None,
             })
         else:
-            download_status[name].update({
+            download_status[key].update({
                 "downloading": False, "status": "error",
                 "error": err,
             })
