@@ -103,33 +103,44 @@ async def unload_model(name: str):
 
 @router.get("/{name}/download-status")
 async def download_status_endpoint(name: str, size: str = ""):
-    """查询模型下载状态。传 size 时返回该规格状态，否则返回所有规格。"""
-    if size:
-        key = f"{name}_{size}"
-        status = download_status.get(key, {})
+    """查询模型下载状态。优先返回内存中正在进行的任务状态；
+    若内存没记录但磁盘上已存在，则返回 completed。"""
+    import os
+    from pathlib import Path
+
+    def _check_disk(n: str, sz: str) -> bool:
+        """检查磁盘上是否已下载该规格"""
+        target = Path(f"./models/{n}/{sz}")
+        if not target.exists():
+            return False
+        # 关键标志文件：config.json 或 model.safetensors
+        return (target / "config.json").exists() or any(target.glob("model*.safetensors"))
+
+    def _build_status(n: str, sz: str) -> dict:
+        key = f"{n}_{sz}"
+        mem_status = download_status.get(key, {})
+        # 如果内存里没在下载/没失败记录，但磁盘有，认为是已完成
+        if not mem_status or mem_status.get("status") == "not_started":
+            if _check_disk(n, sz):
+                return {
+                    "downloading": False, "progress": 100,
+                    "status": "completed", "phase": "idle",
+                    "phase_message": "", "error": None,
+                }
         return {
-            "name": name, "size": size,
-            "downloading": status.get("downloading", False),
-            "progress": status.get("progress", 0),
-            "status": status.get("status", "not_started"),
-            "phase": status.get("phase", "idle"),
-            "phase_message": status.get("status", ""),
-            "error": status.get("error"),
+            "downloading": mem_status.get("downloading", False),
+            "progress": mem_status.get("progress", 0),
+            "status": mem_status.get("status", "not_started"),
+            "phase": mem_status.get("phase", "idle"),
+            "phase_message": mem_status.get("status", ""),
+            "error": mem_status.get("error"),
         }
-    # 返回该模型所有规格的状态
+
+    if size:
+        return {"name": name, "size": size, **_build_status(name, size)}
+
     sizes = MODEL_REPOS.get(name, {})
-    result = {}
-    for sz in sizes:
-        key = f"{name}_{sz}"
-        status = download_status.get(key, {})
-        result[sz] = {
-            "downloading": status.get("downloading", False),
-            "progress": status.get("progress", 0),
-            "status": status.get("status", "not_started"),
-            "phase": status.get("phase", "idle"),
-            "phase_message": status.get("status", ""),
-            "error": status.get("error"),
-        }
+    result = {sz: _build_status(name, sz) for sz in sizes}
     return {"name": name, "sizes": result}
 
 
