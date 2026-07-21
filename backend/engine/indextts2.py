@@ -33,20 +33,28 @@ class IndexTTS2Adapter(ModelInterface):
                 from indextts.infer_v2 import IndexTTS2
             except ImportError:
                 raise ImportError(
-                    "indextts2 not installed. Run: pip install indextts2-inference\n"
-                    "Or clone: git clone https://github.com/index-tts/index-tts"
+                    "IndexTTS2 not installed. Run: pip install IndexTTS2"
                 )
 
-        # IndexTTS2 typically loads from a local checkpoint directory
-        # Set INDEXTTS2_PATH env var to point to your checkpoints
-        model_dir = os.getenv("INDEXTTS2_PATH", "checkpoints")
+        # 严格使用本地路径（ModelScope 下载的位置）
+        import os
+        model_dir = "./models/indextts2/standard"
         cfg_path = os.path.join(model_dir, "config.yaml")
-
         if not os.path.exists(cfg_path):
-            raise FileNotFoundError(
-                f"IndexTTS2 checkpoint not found at {model_dir}.\n"
-                "Set INDEXTTS2_PATH environment variable or place checkpoints in ./checkpoints/"
-            )
+            # IndexTTS2 的 config 可能是其他名字
+            if os.path.exists(model_dir):
+                # 找目录下的 yaml 配置
+                yamls = [f for f in os.listdir(model_dir) if f.endswith('.yaml') or f.endswith('.yml')]
+                if yamls:
+                    cfg_path = os.path.join(model_dir, yamls[0])
+                else:
+                    raise FileNotFoundError(
+                        f"在 {model_dir} 找不到 config.yaml。请确认下载完整。"
+                    )
+            else:
+                raise FileNotFoundError(
+                    f"模型未下载: {model_dir}. 请先在前端点击下载按钮。"
+                )
 
         try:
             self._model = IndexTTS2(
@@ -56,7 +64,7 @@ class IndexTTS2Adapter(ModelInterface):
                 use_cuda_kernel=False,
             )
         except TypeError:
-            # Fallback for newer API
+            # 较新 API
             self._model = IndexTTS2(model_dir=model_dir)
 
         self._loaded_size = size

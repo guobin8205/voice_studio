@@ -51,12 +51,13 @@ if FRONTEND_DIST.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    # 单进程模式：直接 reload=True，前端不需要单独跑
-    # 但前端代码改动时需要手动重新 build（或运行 python run.py build）
+    import os
+    # 生产模式：禁用 reload，避免下载/推理过程中被中断
+    # 开发时手动重启即可（python run.py start 会先 stop 再 start）
+    use_reload = os.getenv("TTS_RELOAD", "0") == "1"
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",
         port=SERVER_PORT,
-        reload=True,
-        reload_dirs=[str(Path(__file__).parent)],  # 只监听后端代码
+        reload=use_reload,
     )

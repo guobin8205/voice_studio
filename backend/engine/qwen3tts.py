@@ -52,13 +52,22 @@ class Qwen3TTSAdapter(ModelInterface):
                 "qwen-tts package not installed. Run: pip install qwen-tts"
             )
 
-        # 优先用本地下载的权重，否则从 HF 拉
+        # 严格使用本地路径：必须先下载，否则报错（避免 from_pretrained 自动从 HF 拉）
         import os
         local_path = LOCAL_PATHS.get(size)
-        model_source = local_path if local_path and os.path.exists(local_path) else MODEL_IDS[size]
+        if not local_path or not os.path.exists(local_path):
+            raise FileNotFoundError(
+                f"模型权重未下载: {local_path or LOCAL_PATHS.get(size)}. "
+                f"请先在前端点击下载按钮下载 {size} 规格。"
+            )
+        # 检查关键文件
+        if not os.path.exists(os.path.join(local_path, "config.json")):
+            raise FileNotFoundError(
+                f"模型目录不完整（缺 config.json）: {local_path}. 请重新下载。"
+            )
 
         self._model = Qwen3TTSModel.from_pretrained(
-            model_source,
+            local_path,
             device_map="cuda:0",
             dtype=torch.bfloat16,
         )

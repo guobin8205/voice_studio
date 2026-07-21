@@ -220,6 +220,12 @@ def start():
     if not check_environment():
         return
 
+    # 设置环境变量（必须在启动 backend 前设置）
+    _os = os
+    _os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")  # HF 国内镜像
+    _os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")  # 关闭 symlink 警告
+    _os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")  # 不强制 hf_transfer
+
     # Install if needed
     if not (FRONTEND / "node_modules").exists():
         print(dim("\n首次运行，正在安装依赖..."))

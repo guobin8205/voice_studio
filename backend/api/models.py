@@ -32,6 +32,10 @@ MODEL_REAL_SIZES = {
 PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_TRUSTED_HOST = "pypi.tuna.tsinghua.edu.cn"
 
+# HuggingFace 国内镜像（hf-mirror.com，避免国内访问 HF 超时）
+import os as _os
+_os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 # ModelScope model IDs（国内首选），HuggingFace 作为 fallback
 MODEL_REPOS = {
     "qwen3tts": {

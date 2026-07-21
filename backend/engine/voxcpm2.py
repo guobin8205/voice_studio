@@ -32,9 +32,16 @@ class VoxCPM2Adapter(ModelInterface):
                 "voxcpm package not installed. Run: pip install voxcpm"
             )
 
-        # VoxCPM2 是单一 2B 模型
+        # 严格使用本地路径
+        import os
+        local_path = "./models/voxcpm2/2B"
+        if not os.path.exists(local_path) or not os.path.exists(os.path.join(local_path, "config.json")):
+            raise FileNotFoundError(
+                f"模型权重未下载或目录不完整: {local_path}. 请先在前端点击下载按钮。"
+            )
+
         self._model = VoxCPM.from_pretrained(
-            "openbmb/VoxCPM2",
+            local_path,
             load_denoiser=True,
         )
         self._loaded_size = size
