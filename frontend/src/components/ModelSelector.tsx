@@ -1,46 +1,41 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useStore } from '../store';
 import { api } from '../api/client';
-
-interface DownloadState {
-  downloading: boolean;
-  progress: number;
-  status: string;
-  error: string | null;
-}
 
 export function ModelSelector() {
   const models = useStore(s => s.models);
   const selectedModels = useStore(s => s.selectedModels);
   const toggleModel = useStore(s => s.toggleModel);
-  const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
-  const wsRefs = useRef<Record<string, WebSocket>>({});
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
 
-  // Poll download status on mount
-  useEffect(() => {
-    models.forEach(m => {
-      api.getDownloadStatus(m.name).then(s => {
-        setDownloads(prev => ({ ...prev, [m.name]: s }));
-      });
-    });
-  }, [models]);
+  const startDownload = async (name: string) => {
+    setDownloading(name);
+    setDownloadProgress(0);
+    try {
+      // Start download
+      await api.startDownload(name);
 
-  const startDownload = (name: string) => {
-    setDownloads(prev => ({ ...prev, [name]: { downloading: true, progress: 0, status: 'downloading', error: null } }));
-    api.startDownload(name).then(() => {
-      // Connect WebSocket for progress
+      // Poll progress via WebSocket
       const ws = api.downloadProgressWS(name);
-      wsRefs.current[name] = ws;
       ws.onmessage = (e) => {
         const data = JSON.parse(e.data);
-        setDownloads(prev => ({ ...prev, [name]: data }));
-        if (data.status === 'completed' || data.status === 'error') {
+        setDownloadProgress(data.progress || 0);
+        if (data.status === 'completed') {
+          setDownloaded(prev => new Set(prev).add(name));
+          setDownloading(null);
           ws.close();
+        } else if (data.status === 'error') {
+          setDownloading(null);
+          ws.close();
+          alert(`下载失败: ${data.error || '未知错误'}`);
         }
       };
-    }).catch(err => {
-      setDownloads(prev => ({ ...prev, [name]: { downloading: false, progress: 0, status: 'error', error: err.message } }));
-    });
+    } catch (e: any) {
+      setDownloading(null);
+      alert(`下载启动失败: ${e.message}`);
+    }
   };
 
   return (
@@ -49,7 +44,8 @@ export function ModelSelector() {
       {models.map(m => {
         const isActive = selectedModels.some(sm => sm.name === m.name);
         const activeSize = selectedModels.find(sm => sm.name === m.name)?.size;
-        const dl = downloads[m.name];
+        const isDownloading = downloading === m.name;
+        const isDownloaded = downloaded.has(m.name);
 
         return (
           <div key={m.name}>
@@ -82,32 +78,25 @@ export function ModelSelector() {
                   {size}
                 </span>
               ))}
-              <div className="ml-auto flex items-center gap-2">
-                {dl?.status === 'completed' ? (
+              <div className="ml-auto">
+                {isDownloaded ? (
                   <span className="text-xs text-green-500 font-medium">✓ 已下载</span>
-                ) : dl?.downloading ? (
-                  <span className="text-xs text-blue-500 font-medium">下载中 {dl.progress}%</span>
+                ) : isDownloading ? (
+                  <span className="text-xs text-blue-500 font-medium">⏳ {downloadProgress}%</span>
                 ) : (
                   <button
                     onClick={(e) => { e.stopPropagation(); startDownload(m.name); }}
                     className="text-xs text-violet-500 hover:text-violet-700 font-medium px-2 py-1 rounded-lg hover:bg-violet-50 transition-colors"
                   >
-                    📥 下载
+                    📥 下载模型
                   </button>
-                )}
-                {dl?.status === 'error' && (
-                  <span className="text-xs text-red-400" title={dl.error || ''}>⚠️</span>
                 )}
               </div>
             </div>
-            {/* Progress bar */}
-            {dl?.downloading && (
+            {isDownloading && (
               <div className="mt-1 mx-4">
                 <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                    style={{ width: `${dl.progress}%` }}
-                  />
+                  <div className="h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${downloadProgress}%` }} />
                 </div>
               </div>
             )}
