@@ -288,19 +288,36 @@ async def _download_model(name: str, size: str = ""):
 
             # 检测是否在 uv venv 中（没有 pip 就用 uv pip）
             actual_cmd = list(cmd)
-            if cmd and cmd[0] == sys.executable and len(cmd) > 1 and cmd[1] == "-m" and cmd[2] == "pip":
-                # 看这个 python 有没有 pip 模块
+            use_uv = False
+            if cmd and cmd[0] == sys.executable and len(cmd) > 2 and cmd[1] == "-m" and cmd[2] == "pip":
                 try:
                     subprocess.run(
                         [sys.executable, "-c", "import pip"],
                         capture_output=True, timeout=5,
                     ).check_returncode()
                 except Exception:
-                    # 没 pip，用 uv pip 替代
-                    # sys.executable -m pip install X ... → uv pip install --python sys.executable X ...
-                    # 跳过 cmd[0..2]（python -m pip）
-                    rest = cmd[3:]
-                    actual_cmd = ["uv", "pip", "install", "--python", sys.executable] + rest
+                    use_uv = True
+
+            if use_uv:
+                # 把 `python -m pip install X --progress-bar=on -i URL --trusted-host H`
+                # 翻译成 `uv pip install --python PYTHON X --index-url URL`
+                rest = cmd[3:]  # 跳过 python -m pip
+                filtered = []
+                i = 0
+                index_url = None
+                while i < len(rest):
+                    arg = rest[i]
+                    if arg == "--progress-bar=on":
+                        i += 1; continue
+                    if arg == "-i" and i + 1 < len(rest):
+                        index_url = rest[i + 1]; i += 2; continue
+                    if arg == "--trusted-host" and i + 1 < len(rest):
+                        i += 2; continue
+                    filtered.append(arg); i += 1
+                actual_cmd = ["uv", "pip", "install", "--python", sys.executable]
+                if index_url:
+                    actual_cmd += ["--index-url", index_url]
+                actual_cmd += filtered
 
             proc = subprocess.Popen(
                 actual_cmd,
