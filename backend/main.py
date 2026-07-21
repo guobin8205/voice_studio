@@ -1,4 +1,8 @@
 from pathlib import Path
+# 必须最先导入：为旧版 API 提供 transformers 兼容别名（让 IndexTTS2 在新版 transformers 上跑）
+from backend.utils.compat_patches import patch_transformers_cache
+patch_transformers_cache()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles

@@ -226,6 +226,16 @@ def start():
     _os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")  # 关闭 symlink 警告
     _os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")  # 不强制 hf_transfer
 
+    # 优先使用项目根目录的 .venv（Python 3.10，已装好 qwen-tts/voxcpm 等）
+    venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
+    if venv_python.exists():
+        python_exe = str(venv_python)
+        print(f"  {dim(f'使用 venv: {python_exe}')}")
+    else:
+        python_exe = sys.executable
+        print(f"  {dim(f'使用系统 Python: {python_exe}')}")
+        print(f"  {dim('提示: 建议运行 `uv venv --python 3.10 .venv` 创建独立环境')}")
+
     # Install if needed
     if not (FRONTEND / "node_modules").exists():
         print(dim("\n首次运行，正在安装依赖..."))
@@ -251,7 +261,7 @@ def start():
 
     # Single process: FastAPI serves API + built frontend
     backend_proc = run(
-        f'"{sys.executable}" -m backend.main',
+        f'"{python_exe}" -m backend.main',
         cwd=ROOT,
     )
     PID_FILE.write_text(f"{backend_proc.pid}")

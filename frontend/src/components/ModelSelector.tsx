@@ -97,36 +97,43 @@ export function ModelSelector() {
     <div className="space-y-2">
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">选择模型对比</div>
       {models.map(m => {
+        const isDisabled = (m as any).disabled === true;
         // 同模型可能有多个 size 被选中（多选对比）
         const selectedEntries = selectedModels.filter(sm => sm.name === m.name);
         const isActive = selectedEntries.length > 0;
-        // 顶部 checkbox：只要还有任意一个 size 选中就显示选中态；
-        // 点击时如果当前选中的是第一个 size，则取消它；否则取消所有
         const firstSelectedSize = selectedEntries[0]?.size;
 
         return (
-          <div key={m.name} className="border-2 border-gray-200 rounded-xl bg-gray-50/50 px-4 py-3 space-y-2">
+          <div key={m.name} className={`border-2 rounded-xl px-4 py-3 space-y-2 ${
+            isDisabled ? 'border-gray-200 bg-gray-100/50 opacity-60' : 'border-gray-200 bg-gray-50/50'
+          }`}>
             {/* 模型行 */}
             <div className="flex items-center gap-3">
               <button
                 onClick={() => {
+                  if (isDisabled) return;
                   if (isActive) {
-                    // 取消该模型的所有 size
                     selectedEntries.forEach(e => toggleModel(m.name, e.size));
                   } else {
                     toggleModel(m.name, m.sizes[0]);
                   }
                 }}
+                disabled={isDisabled}
                 className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-xs transition-colors shrink-0 ${
-                  isActive ? 'bg-violet-500 border-violet-500 text-white' : 'border-gray-300 text-transparent hover:border-violet-400'
+                  isActive ? 'bg-violet-500 border-violet-500 text-white'
+                  : isDisabled ? 'border-gray-200 text-transparent cursor-not-allowed'
+                  : 'border-gray-300 text-transparent hover:border-violet-400 cursor-pointer'
                 }`}
-                aria-label={isActive ? '取消所有选择' : '选择此模型'}
+                aria-label={isActive ? '取消所有选择' : isDisabled ? '不可用' : '选择此模型'}
               >
                 ✓
               </button>
-              <span className={`font-semibold text-[15px] ${isActive ? 'text-gray-900' : 'text-gray-700'}`}>
+              <span className={`font-semibold text-[15px] ${isActive ? 'text-gray-900' : isDisabled ? 'text-gray-400' : 'text-gray-700'}`}>
                 {m.display_name}
               </span>
+              {isDisabled && (
+                <span className="text-[10px] text-gray-400 ml-1">（暂不可用）</span>
+              )}
               {isActive && selectedEntries.length > 1 && (
                 <span className="text-[10px] text-violet-500 ml-1">已选 {selectedEntries.length} 个规格</span>
               )}
@@ -135,7 +142,14 @@ export function ModelSelector() {
               </span>
             </div>
 
-            {/* Size 选择行 */}
+            {isDisabled && (
+              <div className="ml-8 text-[11px] text-gray-400">
+                此模型暂不兼容当前环境，可手动从 <a className="text-violet-400 underline" href="https://github.com/index-tts/index-tts" target="_blank" rel="noreferrer">github.com/index-tts</a> 单独部署
+              </div>
+            )}
+
+            {/* Size 选择行（disabled 模型不显示） */}
+            {!isDisabled && (
             <div className="ml-8 flex flex-wrap items-center gap-2">
               {m.sizes.map(size => {
                 const key = `${m.name}_${size}`;
@@ -202,6 +216,7 @@ export function ModelSelector() {
                 );
               })}
             </div>
+            )}
 
             {/* 进度条 / 错误 */}
             {m.sizes.some(sz => {

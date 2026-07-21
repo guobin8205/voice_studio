@@ -14,6 +14,10 @@ _download_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dl")
 # Model download tracking
 download_status: dict[str, dict] = {}
 
+# 由于 transformers 版本冲突（qwen-tts 要 4.57，indextts 要 4.52，互斥），
+# IndexTTS2 暂不可用。可以从单独的 Python 3.10 环境跑。
+DISABLED_MODELS = {"indextts2"}
+
 # 每个模型对应的推理包（pip 安装）
 MODEL_PACKAGES = {
     "qwen3tts": "qwen-tts",
@@ -83,7 +87,10 @@ class LoadRequest(BaseModel):
 
 @router.get("")
 async def list_models():
-    return [_as_dict(m) for m in manager.get_available_models()]
+    return [
+        {**_as_dict(m), "disabled": m.name in DISABLED_MODELS}
+        for m in manager.get_available_models()
+    ]
 
 
 @router.get("/{name}/status")
