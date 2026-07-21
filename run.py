@@ -217,6 +217,12 @@ def start():
     _kill_port(8765)
     _kill_port(3000)
 
+    # Clear Vite cache to avoid stale CSS issues
+    vite_cache = FRONTEND / "node_modules" / ".vite"
+    if vite_cache.exists():
+        shutil.rmtree(vite_cache)
+        print(f"  {dim('清理 Vite 缓存...')}")
+
     backend_proc = run(
         f'"{sys.executable}" -m backend.main',
         cwd=ROOT,
@@ -297,6 +303,21 @@ def status():
         pass
 
 
+def clean():
+    """清理缓存文件。"""
+    print(bold("\n🧹 清理缓存...\n"))
+    paths = [
+        FRONTEND / "node_modules" / ".vite",
+        ROOT / ".pytest_cache",
+        BACKEND / "__pycache__",
+    ]
+    for p in paths:
+        if p.exists():
+            shutil.rmtree(p)
+            print(f"  {green('✓')} 已删除: {p.relative_to(ROOT)}")
+    print(green("\n  缓存清理完成"))
+
+
 def _kill_port(port):
     """Kill process occupying a port."""
     try:
@@ -324,6 +345,7 @@ def show_help():
     print("  python run.py stop        停止所有服务")
     print("  python run.py status      查看服务状态")
     print("  python run.py check       检查运行环境")
+    print("  python run.py clean       清理缓存")
 
 
 def main():
@@ -336,6 +358,7 @@ def main():
         "stop": stop,
         "status": status,
         "check": check_environment,
+        "clean": clean,
         "help": show_help,
         "-h": show_help,
         "--help": show_help,
