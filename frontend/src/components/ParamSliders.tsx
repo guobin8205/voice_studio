@@ -5,19 +5,22 @@ const PARAMS = [
   { key: 'pitch', label: '音高', min: -12, max: 12, step: 1, defaultVal: 0 },
   { key: 'temperature', label: '温度', min: 0.1, max: 1.0, step: 0.1, defaultVal: 0.4 },
   { key: 'top_p', label: 'Top‑P', min: 0.1, max: 1.0, step: 0.05, defaultVal: 0.9 },
-];
+] as const;
 
 export function ParamSliders() {
+  const speed = useStore(s => s.speed);
+  const pitch = useStore(s => s.pitch);
+  const temperature = useStore(s => s.temperature);
+  const topP = useStore(s => s.top_p);
   const setInput = useStore(s => s.setInput);
-  const values = useStore(s => ({
-    speed: s.speed, pitch: s.pitch, temperature: s.temperature, top_p: s.top_p,
-  }));
+
+  const values: Record<string, number> = { speed, pitch, temperature, top_p: topP };
 
   return (
     <div className="space-y-3">
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">参数</div>
       {PARAMS.map(p => {
-        const val = (values as any)[p.key];
+        const val = values[p.key];
         const pct = ((val - p.min) / (p.max - p.min)) * 100;
         return (
           <div key={p.key} className="flex items-center gap-3">
