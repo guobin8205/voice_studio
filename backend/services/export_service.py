@@ -3,14 +3,13 @@ import json
 import zipfile
 import io
 import os
-from backend.services.voice_store import VoiceStore
-from backend.api.voices import store as _shared_store  # 复用共享 store
 from backend.config import EXPORT_DIR
 
 
-def export_voice(voice_id: str) -> tuple[bytes, str]:
-    """导出音色为 zip 包，返回 (zip_bytes, voice_name)"""
-    record = _shared_store.get(voice_id)
+def export_voice(voice_id: str, store) -> tuple[bytes, str]:
+    """导出音色为 zip 包，返回 (zip_bytes, voice_name)。
+    store 由调用方传入（避免循环导入）"""
+    record = store.get(voice_id)
     if not record:
         raise FileNotFoundError(f"Voice not found: {voice_id}")
 
