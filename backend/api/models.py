@@ -22,7 +22,7 @@ MODEL_PACKAGES = {
 
 # 每个模型的真实规格
 MODEL_REAL_SIZES = {
-    "qwen3tts": ["1.7B", "0.6B"],
+    "qwen3tts": ["1.7B"],  # VoiceDesign 只有 1.7B（没有 0.6B-VoiceDesign）
     "voxcpm2": ["2B"],
 }
 
@@ -37,8 +37,9 @@ _os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 # ModelScope model IDs（国内首选），HuggingFace 作为 fallback
 MODEL_REPOS = {
     "qwen3tts": {
-        "1.7B": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        "0.6B": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        # VoiceDesign 模型：凭自然语言描述创造全新音色（声音设计页使用）
+        # 注意：只有 1.7B-VoiceDesign，没有 0.6B-VoiceDesign
+        "1.7B": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
     },
     "voxcpm2": {
         "2B": "openbmb/VoxCPM2",
@@ -51,11 +52,23 @@ HF_REPOS = {
 }
 
 # Register model adapters
-from backend.engine.qwen3tts import Qwen3TTSAdapter
-from backend.engine.voxcpm2 import VoxCPM2Adapter
+# 通过 TTS_ENGINE 环境变量切换实现：
+# - local（默认）：用 transformers 直接加载（Windows native，慢但功能完整）
+# - proxy：HTTP 转发到 Docker 容器（Linux + GPU，快 30-500%）
+#         qwen3tts 走 8880，voxcpm2 走 8881，container_switcher 自动互斥切换
+import os as _os
+_TTS_ENGINE = _os.getenv("TTS_ENGINE", "local").lower()
+if _TTS_ENGINE == "proxy":
+    from backend.engine.qwen3tts_proxy import Qwen3TTSProxyAdapter as _QwenAdapter
+    from backend.engine.voxcpm2_proxy import VoxCPM2ProxyAdapter as _VoxAdapter
+    print("[models] proxy 引擎：qwen3tts→容器:8880, voxcpm2→容器:8881（互斥切换）", flush=True)
+else:
+    from backend.engine.qwen3tts import Qwen3TTSAdapter as _QwenAdapter
+    from backend.engine.voxcpm2 import VoxCPM2Adapter as _VoxAdapter
+    print("[models] local 引擎：Windows native transformers", flush=True)
 
-manager.register("qwen3tts", Qwen3TTSAdapter())
-manager.register("voxcpm2", VoxCPM2Adapter())
+manager.register("qwen3tts", _QwenAdapter())
+manager.register("voxcpm2", _VoxAdapter())
 
 
 class LoadRequest(BaseModel):

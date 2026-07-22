@@ -36,15 +36,19 @@ export function VoiceDesign() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                音色描述 <span className="font-normal normal-case text-gray-300">— 提示词，情绪融合其中</span>
+                音色描述 <span className="font-normal normal-case text-gray-300">— 用自然语言描述说话者特征（性别/年龄/语调/情感）</span>
               </label>
               <textarea
                 className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 resize-none focus:outline-none focus:border-violet-500 focus:bg-white transition-colors"
                 rows={4}
-                placeholder="温柔知性的女声，像深夜电台主播，语速适中带着一点沙哑的质感..."
+                placeholder="例如：温柔知性的女声，像深夜电台主播，语速适中带着一点沙哑的质感&#10;或英文：a warm gentle female voice with a calm and soothing tone"
                 value={prompt}
                 onChange={e => setInput('prompt', e.target.value)}
               />
+              <p className="text-[12px] text-gray-400 leading-relaxed">
+                💡 <b>Qwen3-TTS</b>（VoiceDesign 模型）：凭描述创造全新音色，每次结果可能不同<br/>
+                💡 <b>VoxCPM2</b>：纯自然语言描述生成全新音色（支持中英文），无需参考音频
+              </p>
             </div>
 
             <div className="space-y-1">

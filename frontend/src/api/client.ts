@@ -1,4 +1,4 @@
-import type { ModelInfo, SystemStatus, GenerateRequest, GenerateResponse, VoiceRecord } from '../types';
+import type { ModelInfo, SystemStatus, GenerateRequest, GenerateResponse, GenerateEvent, VoiceRecord } from '../types';
 
 const BASE = '/api';
 
@@ -12,6 +12,55 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(err || res.statusText);
   }
   return res.json();
+}
+
+/**
+ * SSE 流式生成：通过 fetch + ReadableStream 接收 /api/generate-stream 的事件。
+ * onEvent 在每个事件（loading/generating/done/error）时回调。
+ * 返回一个 abort 函数，调用它会中止请求。
+ */
+function generateStreamSSE(
+  req: GenerateRequest,
+  onEvent: (ev: GenerateEvent) => void,
+  onError: (e: Error) => void,
+): () => void {
+  const controller = new AbortController();
+  fetch(`${BASE}/generate-stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+    signal: controller.signal,
+  }).then(async res => {
+    if (!res.ok || !res.body) {
+      onError(new Error(`HTTP ${res.status}`));
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // SSE 事件以 \n\n 分隔
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = chunk.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        const json = line.slice(5).trim();
+        try {
+          onEvent(JSON.parse(json));
+        } catch (e) {
+          // 忽略解析失败
+        }
+      }
+    }
+  }).catch(e => {
+    if (e.name !== 'AbortError') onError(e);
+  });
+  return () => controller.abort();
 }
 
 export const api = {
@@ -37,6 +86,9 @@ export const api = {
   // TTS
   generate: (req: GenerateRequest) =>
     request<GenerateResponse>('/generate', { method: 'POST', body: JSON.stringify(req) }),
+
+  // SSE 流式生成（带进度反馈）
+  generateStream: generateStreamSSE,
 
   // 克隆（multipart 上传）
   clone: (file: File, req: Omit<GenerateRequest, 'top_p'>) => {

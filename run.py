@@ -170,7 +170,6 @@ def install_models_optional():
     step("检查模型 SDK...")
     sdks = {
         "qwen-tts": "Qwen3-TTS",
-        "indextts2-inference": "IndexTTS2",
         "voxcpm": "VoxCPM2",
     }
     for pkg, name in sdks.items():
@@ -225,6 +224,29 @@ def start():
     _os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")  # HF 国内镜像
     _os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")  # 关闭 symlink 警告
     _os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")  # 不强制 hf_transfer
+
+    # 自动检测 TTS 引擎：检查 Docker 容器是否在跑（qwen3-tts 8880 或 voxcpm2 8881）
+    # 任一容器在跑 → 用 proxy 模式（Linux 容器推理，速度快得多）
+    # 否则用 local（Windows native，慢但功能完整）
+    # 用户可通过 TTS_ENGINE 环境变量强制指定（local/proxy）
+    if "TTS_ENGINE" not in _os.environ:
+        import urllib.request
+        for port, name in [(8880, "qwen3-tts"), (8881, "voxcpm2")]:
+            try:
+                req = urllib.request.Request(f"http://localhost:{port}/health", method="GET")
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    import json as _json
+                    data = _json.loads(resp.read().decode("utf-8"))
+                if data.get("backend", {}).get("ready"):
+                    _os.environ["TTS_ENGINE"] = "proxy"
+                    print(f"  {dim(f'检测到 Docker 容器 {name}（端口 {port}），用 proxy 引擎')}")
+                    break
+            except Exception:
+                pass
+    if _os.environ.get("TTS_ENGINE") == "proxy":
+        print(f"  {dim('TTS 推理由 Docker 容器提供（qwen3-tts→8880, voxcpm2→8881，互斥切换）')}")
+    else:
+        print(f"  {dim('TTS 推理由 Windows 本地提供（启动 Docker 容器可获得 5-7x 加速）')}')
 
     # 优先使用项目根目录的 .venv（Python 3.10，已装好 qwen-tts/voxcpm 等）
     venv_python = ROOT / ".venv" / "Scripts" / "python.exe"

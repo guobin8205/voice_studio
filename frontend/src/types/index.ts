@@ -42,12 +42,32 @@ export interface GenerateRequest {
   pitch: number;
   temperature: number;
   top_p: number;
+  extras?: Record<string, unknown>;
 }
 
 export interface GenerateResponse {
   audio_path: string;
   duration: number;
   sample_rate: number;
+  load_ms?: number;
+  inference_ms?: number;
+  total_ms?: number;
+}
+
+// SSE 推送的生成进度事件
+export interface GenerateEvent {
+  phase: 'loading' | 'loading_done' | 'generating' | 'done' | 'error';
+  elapsed_ms?: number;
+  message?: string;
+  // phase=done 时填充
+  audio_path?: string;
+  duration?: number;
+  sample_rate?: number;
+  load_ms?: number;
+  inference_ms?: number;
+  total_ms?: number;
+  // phase=error 时填充
+  status?: number;
 }
 
 export interface VoiceRecord {

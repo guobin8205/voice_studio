@@ -22,6 +22,8 @@ class TTSInput:
     pitch: float = 0.0
     temperature: float = 0.4
     top_p: float = 0.9
+    # 模型特定可选参数（不同模型用到的不同字段，由 API 层透传）
+    extras: dict = field(default_factory=dict)
 
 
 @dataclass

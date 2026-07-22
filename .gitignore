@@ -1,8 +1,44 @@
-.superpowers/
-node_modules/
+# ── Python ──────────────────────────────────────────
 __pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── 虚拟环境 ────────────────────────────────────────
 .venv/
-backend/data/
-.tts_studio.pid
-backend/data/
+venv/
+env/
+
+# ── Node / 前端构建产物 ─────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── 模型权重 / 数据 / 运行时产物 ───────────────────
 models/
+backend/data/
+backend/data/audio/
+backend/data/exports/
+backend/data/voices.db
+
+# ── 运行时 PID / 日志 ───────────────────────────────
+.tts_studio.pid
+*.log
+server_*.log
+
+# ── IDE / 编辑器 ────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── 工具 / 临时文件 ─────────────────────────────────
+.superpowers/
+.tmp/
+tmp/
+*.bak

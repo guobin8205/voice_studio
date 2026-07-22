@@ -23,6 +23,10 @@ interface AppState {
   temperature: number;
   top_p: number;
 
+  // Qwen3-TTS 专用：从 9 个预定义 speaker 中选一个作为音色基线
+  // （vivian/serena/uncle_fu/dylan/eric/ryan/aiden/ono_anna/sohee）
+  qwenSpeaker: string;
+
   selectedModels: { name: string; size: string }[];
   results: Record<string, GenerateResponse>;
   generating: boolean;
@@ -47,6 +51,17 @@ interface AppState {
   toggleModel: (name: string, size: string) => void;
   loadVoice: (voice: VoiceRecord) => void;
   setModelOverride: (modelName: string, key: keyof ModelOverride, value: number) => void;
+  setQwenSpeaker: (speaker: string) => void;
+}
+
+// 把毫秒格式化成 "X.Xs" 或 "Xm Ys"
+function fmtMs(ms?: number): string {
+  if (!ms) return '';
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${(s - m * 60).toFixed(0)}s`;
 }
 
 const defaultOverride = (): ModelOverride => ({ speed: 1.0, pitch: 0, temperature: 0.4, top_p: 0.9 });
@@ -63,6 +78,7 @@ export const useStore = create<AppState>((set, get) => ({
   pitch: 0,
   temperature: 0.4,
   top_p: 0.9,
+  qwenSpeaker: 'vivian',  // 默认 vivian：明亮略带锋芒的年轻女声（中文）
   selectedModels: [],
   results: {},
   generating: false,
@@ -102,21 +118,54 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       for (let i = 0; i < state.selectedModels.length; i++) {
         const m = state.selectedModels[i];
-        set({ generateProgress: `正在生成 ${m.name} ${m.size} (${i + 1}/${state.selectedModels.length})...` });
         const ov = state.modelOverrides[m.name] || defaultOverride();
-        const resp = await api.generate({
-          model: m.name, size: m.size,
-          text: state.text, language: state.language,
-          dialect: state.dialect, prompt: state.prompt,
-          emotion: state.emotion,
-          speed: ov.speed, pitch: ov.pitch,
-          temperature: ov.temperature, top_p: ov.top_p,
+
+        // 用 SSE 接收进度事件
+        await new Promise<void>((resolve, reject) => {
+          let lastPhase = '';
+          api.generateStream(
+            {
+              model: m.name, size: m.size,
+              text: state.text, language: state.language,
+              dialect: state.dialect, prompt: state.prompt,
+              emotion: state.emotion,
+              speed: ov.speed, pitch: ov.pitch,
+              temperature: ov.temperature, top_p: ov.top_p,
+              // Qwen3-TTS 用 speaker 字段；其它模型忽略 extras 里的 speaker
+              extras: m.name === 'qwen3tts' ? { speaker: state.qwenSpeaker } : {},
+            },
+            (ev) => {
+              if (ev.phase !== lastPhase || ev.phase === 'generating') {
+                lastPhase = ev.phase;
+                const prefix = `[${i + 1}/${state.selectedModels.length}] ${m.name} ${m.size}`;
+                if (ev.phase === 'loading') {
+                  set({ generateProgress: `${prefix} · 加载模型${ev.elapsed_ms ? ` (${fmtMs(ev.elapsed_ms)})` : ''}...` });
+                } else if (ev.phase === 'loading_done') {
+                  set({ generateProgress: `${prefix} · 模型已加载 (${fmtMs(ev.elapsed_ms)})` });
+                } else if (ev.phase === 'generating') {
+                  set({ generateProgress: `${prefix} · 推理中${ev.elapsed_ms ? ` ${fmtMs(ev.elapsed_ms)}` : ''}...` });
+                } else if (ev.phase === 'done') {
+                  results[`${m.name}_${m.size}`] = {
+                    audio_path: ev.audio_path!,
+                    duration: ev.duration!,
+                    sample_rate: ev.sample_rate!,
+                    load_ms: ev.load_ms,
+                    inference_ms: ev.inference_ms,
+                    total_ms: ev.total_ms,
+                  };
+                  set({ generateProgress: `${prefix} · 完成（加载 ${fmtMs(ev.load_ms)} + 推理 ${fmtMs(ev.inference_ms)}）` });
+                  resolve();
+                } else if (ev.phase === 'error') {
+                  reject(new Error(ev.message || '生成失败'));
+                }
+              }
+            },
+            (e) => reject(e),
+          );
         });
-        results[`${m.name}_${m.size}`] = resp;
       }
-      set({ results, generateProgress: '生成完成' });
+      set({ results, generateProgress: `✓ 生成完成` });
     } catch (e: any) {
-      // 提取后端的错误信息
       let msg = e.message || String(e);
       try {
         const j = JSON.parse(msg);
@@ -224,4 +273,6 @@ export const useStore = create<AppState>((set, get) => ({
       },
     });
   },
+
+  setQwenSpeaker: (speaker) => set({ qwenSpeaker: speaker }),
 }));
