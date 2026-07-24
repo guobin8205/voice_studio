@@ -23,7 +23,7 @@ MODEL_PACKAGES = {
 # 每个模型的真实规格
 MODEL_REAL_SIZES = {
     "qwen3tts": ["1.7B"],  # VoiceDesign 只有 1.7B（没有 0.6B-VoiceDesign）
-    "voxcpm2": ["2B"],
+    "voxcpm2": ["2B", "0.5B"],
 }
 
 # pip 国内镜像（清华源）
@@ -43,12 +43,13 @@ MODEL_REPOS = {
     },
     "voxcpm2": {
         "2B": "openbmb/VoxCPM2",
+        "0.5B": "openbmb/VoxCPM-0.5B",
     },
 }
 
 # HuggingFace fallback IDs
 HF_REPOS = {
-    "voxcpm2": {"1.7B": "openbmb/VoxCPM2"},
+    "voxcpm2": {"2B": "openbmb/VoxCPM2", "0.5B": "openbmb/VoxCPM-0.5B"},
 }
 
 # Register model adapters
@@ -252,12 +253,13 @@ async def _download_model(name: str, size: str = ""):
     if ms_cache.exists():
         monitor_paths.append(ms_cache)
 
-    # 各模型目标大小（bytes）
+    # 各模型目标大小（bytes），按 name_size 区分
     estimated_sizes = {
         "qwen3tts": 4 * 1024**3,
-        "voxcpm2": 8 * 1024**3,
+        "voxcpm2_2B": 8 * 1024**3,
+        "voxcpm2_0.5B": 2 * 1024**3,
     }
-    target_size = estimated_sizes.get(name, 4 * 1024**3)
+    target_size = estimated_sizes.get(f"{name}_{size}", 4 * 1024**3)
 
     # 启动后台进度监控（asyncio task）
     stop_monitor = {"flag": False}
@@ -296,12 +298,11 @@ async def _download_model(name: str, size: str = ""):
         def _run_with_progress(cmd: list, label: str, phase_msg_template: str = "{label}: {line}"):
             """运行命令，实时把 stdout/stderr 推送到 download_status。
             返回 (returncode, last_output_line)。
-            自动检测用 uv 还是 pip（uv venv 默认不带 pip）。"""
+            如果 venv 没有 pip，先通过 ensurepip 安装。"""
             download_status[key].update({"phase": "installing_package", "progress": 0})
 
-            # 检测是否在 uv venv 中（没有 pip 就用 uv pip）
+            # 检测是否在 uv venv 中（没有 pip 就先装 pip）
             actual_cmd = list(cmd)
-            use_uv = False
             if cmd and cmd[0] == sys.executable and len(cmd) > 2 and cmd[1] == "-m" and cmd[2] == "pip":
                 try:
                     subprocess.run(
@@ -309,28 +310,14 @@ async def _download_model(name: str, size: str = ""):
                         capture_output=True, timeout=5,
                     ).check_returncode()
                 except Exception:
-                    use_uv = True
-
-            if use_uv:
-                # 把 `python -m pip install X --progress-bar=on -i URL --trusted-host H`
-                # 翻译成 `uv pip install --python PYTHON X --index-url URL`
-                rest = cmd[3:]  # 跳过 python -m pip
-                filtered = []
-                i = 0
-                index_url = None
-                while i < len(rest):
-                    arg = rest[i]
-                    if arg == "--progress-bar=on":
-                        i += 1; continue
-                    if arg == "-i" and i + 1 < len(rest):
-                        index_url = rest[i + 1]; i += 2; continue
-                    if arg == "--trusted-host" and i + 1 < len(rest):
-                        i += 2; continue
-                    filtered.append(arg); i += 1
-                actual_cmd = ["uv", "pip", "install", "--python", sys.executable]
-                if index_url:
-                    actual_cmd += ["--index-url", index_url]
-                actual_cmd += filtered
+                    # venv 没有 pip，先通过 ensurepip 装上
+                    try:
+                        subprocess.run(
+                            [sys.executable, "-m", "ensurepip", "--upgrade"],
+                            capture_output=True, timeout=60,
+                        ).check_returncode()
+                    except Exception:
+                        pass
 
             proc = subprocess.Popen(
                 actual_cmd,
@@ -413,7 +400,7 @@ async def _download_model(name: str, size: str = ""):
         # 阶段 3: HuggingFace 回退
         try:
             from huggingface_hub import snapshot_download
-            hf_repo = HF_REPOS.get(name, {}).get("1.7B", repo_id)
+            hf_repo = HF_REPOS.get(name, {}).get(size, repo_id)
             snapshot_download(hf_repo, local_dir=target_dir, resume_download=True)
             return ("ok", None)
         except ImportError:

@@ -12,7 +12,7 @@ export function VoiceLibrary() {
   const fetchModels = useStore(s => s.fetchModels);
   const loadVoice = useStore(s => s.loadVoice);
   const navigate = useNavigate();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const loadVoices = (s: string, t: string) => {
     api.listVoices(t || undefined, s || undefined)

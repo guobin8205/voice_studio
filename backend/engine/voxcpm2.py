@@ -25,7 +25,7 @@ class VoxCPM2Adapter(ModelInterface):
         return ModelInfo(
             name="voxcpm2",
             display_name="VoxCPM2",
-            sizes=["2B"],
+            sizes=["2B", "0.5B"],
             capabilities=[
                 ModelCapability.VOICE_DESIGN,
                 ModelCapability.VOICE_CLONE,
@@ -43,14 +43,14 @@ class VoxCPM2Adapter(ModelInterface):
             )
 
         # 严格使用本地路径
-        local_path = "./models/voxcpm2/2B"
+        local_path = f"./models/voxcpm2/{size}"
         if not os.path.exists(local_path) or not os.path.exists(os.path.join(local_path, "config.json")):
             raise FileNotFoundError(
                 f"模型权重未下载或目录不完整: {local_path}. 请先在前端点击下载按钮。"
             )
 
-        # 检查 audiovae.pth（VoxCPM2 必需）
-        if not os.path.exists(os.path.join(local_path, "audiovae.pth")):
+        # 检查 audiovae.pth（仅 VoxCPM2 2B 需要，0.5B 用 scalar_quantization）
+        if size != "0.5B" and not os.path.exists(os.path.join(local_path, "audiovae.pth")):
             raise FileNotFoundError(
                 f"模型目录缺少 audiovae.pth: {local_path}. 请重新下载。"
             )
@@ -73,8 +73,9 @@ class VoxCPM2Adapter(ModelInterface):
                 device="cpu",
             )
 
-        # 真实 sample_rate（来自 audio_vae.out_sample_rate，实测 48000）
-        self._sample_rate = getattr(self._model.tts_model, "sample_rate", 48000)
+        # 真实 sample_rate（来自 audio_vae.out_sample_rate，2B 实测 48000，0.5B 为 16000）
+        default_sr = 16000 if size == "0.5B" else 48000
+        self._sample_rate = getattr(self._model.tts_model, "sample_rate", default_sr)
         self._loaded_size = size
 
     def unload(self) -> None:
@@ -97,6 +98,11 @@ class VoxCPM2Adapter(ModelInterface):
         - normalize 必须 False，否则 TextNormalizer 会破坏括号语法
         """
         self._ensure_loaded()
+
+        # VoxCPM-0.5B 不支持 Voice Design（声音设计），只有续写克隆
+        if self._loaded_size == "0.5B":
+            raise ValueError("VoxCPM-0.5B 不支持声音设计（Voice Design），请使用声音克隆功能")
+
         os.makedirs(str(AUDIO_DIR), exist_ok=True)
         output_path = str(AUDIO_DIR / f"voxcpm2_{os.urandom(4).hex()}.wav")
 

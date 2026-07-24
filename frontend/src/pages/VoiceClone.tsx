@@ -7,10 +7,6 @@ import { LanguageDialectSelect } from '../components/LanguageDialectSelect';
 import { AudioUpload } from '../components/AudioUpload';
 
 export function VoiceClone() {
-  const speed = useStore(s => s.speed);
-  const pitch = useStore(s => s.pitch);
-  const temperature = useStore(s => s.temperature);
-  const topP = useStore(s => s.top_p);
   const setInput = useStore(s => s.setInput);
   const text = useStore(s => s.text);
   const emotion = useStore(s => s.emotion);
@@ -106,11 +102,15 @@ export function VoiceClone() {
             {Object.keys(results).length > 0 && (
               <button
                 onClick={async () => {
-                  const name = voiceName || '未命名克隆';
-                  await saveVoice(name, 'clone');
-                  alert(`克隆音色「${name}」已保存到音色库`);
+                  if (!voiceName.trim()) {
+                    alert('请先输入音色名称');
+                    return;
+                  }
+                  await saveVoice(voiceName.trim(), 'clone');
+                  alert(`克隆音色「${voiceName.trim()}」已保存到音色库`);
                 }}
-                className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-semibold text-[15px] transition-colors"
+                disabled={!voiceName.trim()}
+                className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white font-semibold text-[15px] transition-colors"
               >
                 💾 保存当前克隆到音色库
               </button>

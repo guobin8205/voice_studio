@@ -44,7 +44,7 @@ export function DebugConsole() {
     api.listVoices(undefined, voiceSearch || undefined).then(setVoices).catch(() => {});
   }, [voiceSearch]);
 
-  const globalParams = { speed, pitch, temperature, top_p };
+  const globalParams = { speed, pitch, temperature, top_p: topP };
 
   return (
     <div>
@@ -163,7 +163,7 @@ export function DebugConsole() {
                 const activeSize = activeEntry?.size;
                 const ov = modelOverrides[m.name] || defaultOverride;
                 const hasOverride = modelOverrides[m.name] && (
-                  ov.speed !== speed || ov.pitch !== pitch || ov.temperature !== temperature || ov.top_p !== top_p
+                  ov.speed !== speed || ov.pitch !== pitch || ov.temperature !== temperature || ov.top_p !== topP
                 );
 
                 return (
@@ -265,7 +265,7 @@ export function DebugConsole() {
                 return (
                   <OutputCard
                     key={`${m.name}_${m.size}`}
-                    modelName={m.display_name}
+                    modelName={m.name}
                     size={m.size}
                     result={results[`${m.name}_${m.size}`]}
                     paramNote={hasOverride ? `T=${ov!.temperature}（覆盖）` : '默认参数'}

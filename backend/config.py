@@ -18,7 +18,7 @@ MODEL_PATHS = {
 
 MODEL_SIZES = {
     "qwen3tts": ["1.7B", "0.6B"],
-    "voxcpm2": ["2B"],
+    "voxcpm2": ["2B", "0.5B"],
 }
 
 # ModelManager

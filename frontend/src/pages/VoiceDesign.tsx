@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { ModelSelector } from '../components/ModelSelector';
 import { ParamSliders } from '../components/ParamSliders';
@@ -17,6 +17,7 @@ export function VoiceDesign() {
   const generating = useStore(s => s.generating);
   const generateProgress = useStore(s => s.generateProgress);
   const generateError = useStore(s => s.generateError);
+  const [voiceName, setVoiceName] = useState('');
 
   useEffect(() => { fetchModels(); }, [fetchModels]);
 
@@ -63,6 +64,18 @@ export function VoiceDesign() {
             </div>
 
             <ParamSliders />
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                音色名称 <span className="font-normal normal-case text-gray-300">— 保存用</span>
+              </label>
+              <input
+                className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-[15px] bg-gray-50/50 focus:outline-none focus:border-violet-500 focus:bg-white transition-colors"
+                placeholder="给这个音色起个名字..."
+                value={voiceName}
+                onChange={e => setVoiceName(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="flex-1 space-y-5">
@@ -96,11 +109,15 @@ export function VoiceDesign() {
             {Object.keys(results).length > 0 && (
               <button
                 onClick={async () => {
-                  const name = prompt?.slice(0, 20) || '未命名音色';
-                  await saveVoice(name, 'prompt');
-                  alert(`音色「${name}」已保存到音色库`);
+                  if (!voiceName.trim()) {
+                    alert('请先输入音色名称');
+                    return;
+                  }
+                  await saveVoice(voiceName.trim(), 'prompt');
+                  alert(`音色「${voiceName.trim()}」已保存到音色库`);
                 }}
-                className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-semibold text-[15px] transition-colors"
+                disabled={!voiceName.trim()}
+                className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white font-semibold text-[15px] transition-colors"
               >
                 💾 保存当前音色到库
               </button>
