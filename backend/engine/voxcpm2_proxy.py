@@ -19,6 +19,28 @@ PROXY_TIMEOUT = float(os.getenv("TTS_PROXY_TIMEOUT", "120"))
 # 切换容器最长等待时间（含模型加载）
 SWITCH_TIMEOUT = int(os.getenv("TTS_SWITCH_TIMEOUT", "120"))
 
+# 远程 OpenAI 兼容端点（可选）：设置后绕过本地容器直连远程服务
+# 例：VOXCPM2_BASE_URL=http://10.225.36.124:8096/v1/audio/speech
+REMOTE_BASE_URL = os.getenv("VOXCPM2_BASE_URL", "").rstrip("/")
+REMOTE_API_KEY = os.getenv("VOXCPM2_API_KEY", "")
+# 远程端点的模型名（部分网关要求特定名称）
+REMOTE_MODEL = os.getenv("VOXCPM2_REMOTE_MODEL", "voxcpm2")
+# 远程端点音色：部分网关（如 vLLM）只支持固定音色名而非自由文本描述，
+# 设为 "" 则透传 voice design 描述
+REMOTE_VOICE = os.getenv("VOXCPM2_REMOTE_VOICE", "default")
+LOCAL_PROXY_URL = "http://localhost:8881/v1/audio/speech"
+
+
+def _speech_url() -> str:
+    return REMOTE_BASE_URL or LOCAL_PROXY_URL
+
+
+def _auth_headers() -> dict:
+    headers = {"Content-Type": "application/json"}
+    if REMOTE_API_KEY:
+        headers["Authorization"] = f"Bearer {REMOTE_API_KEY}"
+    return headers
+
 
 class VoxCPM2ProxyAdapter(ModelInterface):
     """通过 HTTP 调用 voxcpm2-server 容器的适配器。"""
@@ -41,7 +63,11 @@ class VoxCPM2ProxyAdapter(ModelInterface):
         )
 
     def load(self, size: str) -> None:
-        """切换到 voxcpm2 容器（可能耗时 30-60s）。"""
+        """切换到 voxcpm2 容器（可能耗时 30-60s）。远程端点模式下跳过切换。"""
+        if REMOTE_BASE_URL:
+            self._ready = True
+            self._loaded_size = size
+            return
         success, msg = ensure_active("voxcpm2", max_wait=SWITCH_TIMEOUT)
         if not success:
             raise RuntimeError(f"切换到 voxcpm2 容器失败: {msg}")
@@ -58,16 +84,16 @@ class VoxCPM2ProxyAdapter(ModelInterface):
     def _call_proxy(self, text: str, description: str) -> bytes:
         """调用容器 /v1/audio/speech，返回 wav bytes。"""
         payload = {
-            "model": "voxcpm2",
+            "model": REMOTE_MODEL,
             "input": text,
             "voice": description,  # VoxCPM2 的 voice design 描述
             "response_format": "wav",
         }
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
-            "http://localhost:8881/v1/audio/speech",
+            _speech_url(),
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         try:
@@ -102,17 +128,18 @@ class VoxCPM2ProxyAdapter(ModelInterface):
 
         # 直接构造完整 payload（绕过 _call_proxy 简化版）
         full_payload = {
-            "model": "voxcpm2",
+            "model": REMOTE_MODEL,
             "input": input.text,
-            "voice": description,
+            # 远程网关若只支持固定音色名，用 REMOTE_VOICE 覆盖描述
+            "voice": REMOTE_VOICE if REMOTE_BASE_URL and REMOTE_VOICE else description,
             "response_format": "wav",
             **payload_extras,
         }
         body = json.dumps(full_payload).encode("utf-8")
         req = urllib.request.Request(
-            "http://localhost:8881/v1/audio/speech",
+            _speech_url(),
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         try:
